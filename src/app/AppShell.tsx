@@ -1,0 +1,62 @@
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '@/db/database'
+
+const nav = [
+  { to: '/', label: 'Week plan', end: true },
+  { to: '/ready', label: 'Ready to eat' },
+  { to: '/recipes', label: 'Recipes' },
+  { to: '/pantry', label: 'Pantry' },
+  { to: '/more', label: 'More' },
+]
+
+export function AppShell() {
+  const navigate = useNavigate()
+  const activeSession = useLiveQuery(() =>
+    db.cookingSessions.where('status').equals('active').first(),
+  )
+
+  return (
+    <div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
+      <div className="flex-1 px-4 pb-24 pt-6 sm:px-6">
+        {activeSession ? (
+          <button
+            type="button"
+            onClick={() => navigate(`/cook/${activeSession.id}`)}
+            className="mb-4 flex w-full items-center justify-between rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-left text-sm text-accent-deep"
+          >
+            <span>
+              Session in progress · {activeSession.date}
+            </span>
+            <span className="font-medium">Resume</span>
+          </button>
+        ) : null}
+        <div className="page-enter">
+          <Outlet />
+        </div>
+      </div>
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper-elevated/95 backdrop-blur-md">
+        <div className="mx-auto flex max-w-3xl justify-around px-1 pb-[env(safe-area-inset-bottom)] pt-1">
+          {nav.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                `flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] sm:text-xs ${
+                  isActive ? 'text-accent-deep' : 'text-ink-muted'
+                }`
+              }
+            >
+              <span
+                className={`h-1 w-1 rounded-full ${item.to === '/' ? '' : ''}`}
+                aria-hidden
+              />
+              <span className="truncate font-medium">{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+    </div>
+  )
+}

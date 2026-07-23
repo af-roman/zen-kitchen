@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Newsreader", Georgia, serif;
+  --font-sans: "Source Sans 3", system-ui, sans-serif;
+  --color-ink: #2a2e2b;
+  --color-ink-muted: #5c6560;
+  --color-paper: #f4f1ec;
+  --color-paper-elevated: #faf8f5;
+  --color-line: #ddd6cb;
+  --color-accent: #6b7f72;
+  --color-accent-deep: #3d4a3f;
+  --color-warn: #a86b3c;
+  --color-ok: #5a7a62;
+  --color-danger: #8b4a42;
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  html {
+    @apply bg-paper text-ink font-sans antialiased;
+  }
+
+  body {
+    @apply min-h-dvh bg-paper;
+    background-image:
+      radial-gradient(ellipse 120% 80% at 10% -10%, rgba(107, 127, 114, 0.08), transparent 50%),
+      radial-gradient(ellipse 80% 60% at 100% 0%, rgba(168, 107, 60, 0.05), transparent 45%);
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-medium tracking-tight;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .page-enter {
+    animation: page-fade 280ms ease-out;
+  }
+
+  @keyframes page-fade {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes timer-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(107, 127, 114, 0.35);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(107, 127, 114, 0);
+    }
+  }
+
+  .timer-active {
+    animation: timer-pulse 1.6s ease-in-out infinite;
+  }
+}

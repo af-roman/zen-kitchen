@@ -12,6 +12,7 @@ import {
 import { isLowStock, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
 import { ImageUploadField } from '@/shared/ImageUploadField'
+import { assetUrl } from '@/shared/assetUrl'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -142,7 +143,7 @@ export function PantryPage() {
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
                     {item.imageDataUrl ? (
-                      <img src={item.imageDataUrl} alt="" className="h-full w-full object-cover" />
+                      <img src={assetUrl(item.imageDataUrl)} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <div className="flex h-full items-center justify-center text-xs text-ink-muted">
                         No photo

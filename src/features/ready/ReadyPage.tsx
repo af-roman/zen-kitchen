@@ -8,6 +8,7 @@ import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
 import { isDishRecipe, todayISO } from '@/domain/kitchen'
 import { formatExpiryLabel, resolveServingNutrition } from '@/domain/servings'
+import { assetUrl } from '@/shared/assetUrl'
 
 export function ReadyPage() {
   const navigate = useNavigate()
@@ -77,7 +78,7 @@ export function ReadyPage() {
                           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
                             {recipe?.imageDataUrl ? (
                               <img
-                                src={recipe.imageDataUrl}
+                                src={assetUrl(recipe.imageDataUrl)}
                                 alt=""
                                 className="h-full w-full object-cover"
                               />

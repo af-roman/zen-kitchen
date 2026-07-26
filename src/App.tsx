@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { routerBasename } from '@/shared/assetUrl'
 import { Bootstrap } from './app/Bootstrap'
 import { AppShell } from './app/AppShell'
 import { PlanPage } from './features/plan/PlanPage'
@@ -22,7 +23,7 @@ import { CookPage } from './features/cook/CookPage'
 export default function App() {
   return (
     <Bootstrap>
-      <BrowserRouter>
+      <BrowserRouter basename={routerBasename()}>
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<PlanPage />} />

@@ -23,6 +23,7 @@ import { timerToSeconds } from '@/domain/nutrition'
 import { useGoals } from '@/shared/hooks'
 import { MacroBar } from '@/shared/MacroBar'
 import { ChefTipsPanel } from '@/shared/ChefTips'
+import { assetUrl } from '@/shared/assetUrl'
 import { RecipeStoragePanel } from '@/shared/RecipeStoragePanel'
 import { Badge, Button, PageHeader, WarnBanner } from '@/shared/ui'
 import { formatDuration } from '@/domain/nutrition'
@@ -115,7 +116,7 @@ export function RecipeDetailPage() {
       />
       {recipe.imageDataUrl ? (
         <img
-          src={recipe.imageDataUrl}
+          src={assetUrl(recipe.imageDataUrl)}
           alt=""
           className="mb-4 h-48 w-full rounded-[var(--radius-card)] object-cover"
         />

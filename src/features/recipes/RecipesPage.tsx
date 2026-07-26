@@ -13,6 +13,7 @@ import {
 import { isPrepRecipe, recipeKindOf, recipePortionsAvailable } from '@/domain/kitchen'
 import { recipeNutrition, stockTotals } from '@/domain/recipeMath'
 import { useGoals } from '@/shared/hooks'
+import { assetUrl } from '@/shared/assetUrl'
 import { MacroInline } from '@/shared/MacroBar'
 import { Badge, Button, EmptyState, PageHeader, inputClass } from '@/shared/ui'
 
@@ -197,7 +198,7 @@ function RecipeRow({
       >
         <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-line/40">
           {recipe.imageDataUrl ? (
-            <img src={recipe.imageDataUrl} alt="" className="h-full w-full object-cover" />
+            <img src={assetUrl(recipe.imageDataUrl)} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-ink-muted">
               {prep ? 'Prep' : 'Dish'}

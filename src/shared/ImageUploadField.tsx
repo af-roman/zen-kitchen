@@ -1,4 +1,5 @@
 import { fileToDataUrl } from '@/domain/recipeMath'
+import { assetUrl } from '@/shared/assetUrl'
 import { Field, inputClass } from './ui'
 
 export function ImageUploadField({
@@ -25,7 +26,7 @@ export function ImageUploadField({
       />
       {value ? (
         <img
-          src={value}
+          src={assetUrl(value)}
           alt=""
           className="mt-2 h-20 w-20 rounded-lg border border-line object-cover"
         />

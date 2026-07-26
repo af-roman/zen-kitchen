@@ -1,11 +1,41 @@
 import { db } from './database'
-import type { Recipe, Serving, ServingItem } from '@/domain/types'
+import { removeSiblingLegsOf } from './sessionChains'
+import type { Recipe, Serving, ServingItem, SessionDishPlan } from '@/domain/types'
+import { isPrepRecipe } from '@/domain/kitchen'
 import {
   plannedDishAvailable,
   plannedDishExpiresAt,
   servingItemNeedsFood,
 } from '@/domain/servings'
 import type { ServePick } from '@/domain/servings'
+
+async function restoreAdhocPantryUsage(item: ServingItem): Promise<void> {
+  if (!item.usage?.length) return
+  const now = new Date().toISOString()
+  for (const u of item.usage) {
+    if (!u.pantryItemId || u.amountUsed <= 0) continue
+    const pantry = await db.pantryItems.get(u.pantryItemId)
+    if (!pantry) continue
+    await db.pantryItems.update(u.pantryItemId, {
+      amountLeft: Math.round((pantry.amountLeft + u.amountUsed) * 10) / 10,
+      updatedAt: now,
+    })
+  }
+}
+
+async function deductAdhocPantryUsage(item: ServingItem): Promise<void> {
+  if (!item.usage?.length) return
+  const now = new Date().toISOString()
+  for (const u of item.usage) {
+    if (!u.pantryItemId || u.amountUsed <= 0) continue
+    const pantry = await db.pantryItems.get(u.pantryItemId)
+    if (!pantry) continue
+    await db.pantryItems.update(u.pantryItemId, {
+      amountLeft: Math.max(0, Math.round((pantry.amountLeft - u.amountUsed) * 10) / 10),
+      updatedAt: now,
+    })
+  }
+}
 
 export async function revertServingAllocations(serving: Serving): Promise<void> {
   for (const item of serving.items) {
@@ -27,6 +57,8 @@ export async function revertServingAllocations(serving: Serving): Promise<void> 
         ),
         updatedAt: new Date().toISOString(),
       })
+    } else if (item.usage?.length) {
+      await restoreAdhocPantryUsage(item)
     }
   }
 }
@@ -51,6 +83,8 @@ export async function applyServingItemAllocations(items: ServingItem[]): Promise
         ),
         updatedAt: new Date().toISOString(),
       })
+    } else if (item.usage?.length) {
+      await deductAdhocPantryUsage(item)
     }
   }
 }
@@ -58,6 +92,20 @@ export async function applyServingItemAllocations(items: ServingItem[]): Promise
 function creditPortions(items: ServingItem[] | undefined, match: (item: ServingItem) => boolean) {
   if (!items?.length) return 0
   return items.reduce((sum, item) => (match(item) ? sum + item.portions : sum), 0)
+}
+
+function creditPantryUsage(
+  items: ServingItem[] | undefined,
+  pantryItemId: number,
+): number {
+  if (!items?.length) return 0
+  let sum = 0
+  for (const item of items) {
+    for (const u of item.usage ?? []) {
+      if (u.pantryItemId === pantryItemId) sum += u.amountUsed
+    }
+  }
+  return sum
 }
 
 export async function validateServePicks(
@@ -69,6 +117,8 @@ export async function validateServePicks(
   creditFromReplace?: ServingItem[],
 ): Promise<string[]> {
   const shortfalls: string[] = []
+  /** Aggregate ad-hoc pantry demand across picks in this save. */
+  const adhocDemand = new Map<number, { amount: number; label: string }>()
 
   for (const pick of picks) {
     if (pick.kind === 'batch') {
@@ -94,7 +144,7 @@ export async function validateServePicks(
       if (pick.portions > left) {
         shortfalls.push(`${name}: need ${pick.portions} portions, only ${left} left`)
       }
-    } else {
+    } else if (pick.kind === 'planned') {
       const session = await db.cookingSessions.get(pick.sessionId)
       const dish = session?.dishes.find((d) => d.recipeId === pick.recipeId)
       const name = recipeName(pick.recipeId)
@@ -107,6 +157,10 @@ export async function validateServePicks(
         continue
       }
       const recipe = recipeById?.get(pick.recipeId)
+      if (recipe && isPrepRecipe(recipe)) {
+        shortfalls.push(`${name}: prep recipes go to pantry, not meals`)
+        continue
+      }
       if (recipe) {
         const expiresAt = plannedDishExpiresAt(session.date, recipe.storageDays)
         if (serveDate > expiresAt) {
@@ -123,6 +177,44 @@ export async function validateServePicks(
       if (pick.portions > left) {
         shortfalls.push(`${name}: need ${pick.portions} portions, only ${left} left`)
       }
+    } else {
+      const name = pick.name.trim() || 'Other food'
+      if (!pick.name.trim()) {
+        shortfalls.push('Other food: name is required')
+        continue
+      }
+      if (pick.portions <= 0) {
+        shortfalls.push(`${name}: portions must be greater than zero`)
+        continue
+      }
+      for (const u of pick.usage ?? []) {
+        if (!u.pantryItemId || u.amountUsed <= 0) {
+          shortfalls.push(`${name}: each pantry line needs an item and amount`)
+          continue
+        }
+        const prev = adhocDemand.get(u.pantryItemId)
+        adhocDemand.set(u.pantryItemId, {
+          amount: (prev?.amount ?? 0) + u.amountUsed,
+          label: name,
+        })
+      }
+    }
+  }
+
+  for (const [pantryItemId, demand] of adhocDemand) {
+    const pantry = await db.pantryItems.get(pantryItemId)
+    if (!pantry) {
+      shortfalls.push(`${demand.label}: a pantry item is no longer available`)
+      continue
+    }
+    const credit = creditPantryUsage(creditFromReplace, pantryItemId)
+    const left = pantry.amountLeft + credit
+    if (demand.amount > left + 1e-9) {
+      shortfalls.push(
+        `${demand.label}: need ${Math.round(demand.amount * 10) / 10}, only ${
+          Math.round(left * 10) / 10
+        } left in pantry`,
+      )
     }
   }
 
@@ -247,5 +339,49 @@ export async function deleteCookingSession(
     }
   }
 
+  const session = await db.cookingSessions.get(sessionId)
   await db.cookingSessions.delete(sessionId)
+  // A cook day going away leaves its prep legs pointless.
+  if (session) await removeSiblingLegsOf(session)
+}
+
+/** Abandon an active cook: restore pantry, discard progress, no Ready/prep/log. */
+export async function cancelActiveCookingSession(sessionId: number): Promise<void> {
+  const session = await db.cookingSessions.get(sessionId)
+  if (!session) return
+  if (session.status !== 'active') {
+    throw new Error('Only an active cooking session can be canceled.')
+  }
+
+  const now = new Date().toISOString()
+
+  for (const dish of session.dishes) {
+    if (!dish.completed) continue
+    for (const u of dish.usage ?? []) {
+      if (!u.pantryItemId || u.amountUsed <= 0) continue
+      const item = await db.pantryItems.get(u.pantryItemId)
+      if (!item) continue
+      await db.pantryItems.update(u.pantryItemId, {
+        amountLeft: Math.round((item.amountLeft + u.amountUsed) * 10) / 10,
+        updatedAt: now,
+      })
+    }
+  }
+
+  const resetDishes: SessionDishPlan[] = session.dishes.map((d) => ({
+    recipeId: d.recipeId,
+    portions: d.portions,
+    ...(d.portionsPlanned != null ? { portionsPlanned: d.portionsPlanned } : {}),
+    ...(d.stageDaysAhead != null ? { stageDaysAhead: d.stageDaysAhead } : {}),
+    ...(d.chainId != null ? { chainId: d.chainId } : {}),
+  }))
+
+  await db.cookingSessions.update(sessionId, {
+    status: 'planned',
+    dishes: resetDishes,
+    notes: '',
+    startedAt: undefined,
+    finishedAt: undefined,
+    updatedAt: now,
+  })
 }

@@ -5,10 +5,13 @@ export function MacroBar({
   nutrition,
   goals,
   compact = false,
+  /** Clarifies that bars are vs daily goals (e.g. on a single meal). */
+  goalCaption = 'of daily target',
 }: {
   nutrition: Nutrition
   goals: Goals
   compact?: boolean
+  goalCaption?: string
 }) {
   const macros = macroGramsFromGoals(goals)
   const rows = [
@@ -20,6 +23,9 @@ export function MacroBar({
 
   return (
     <div className={`space-y-2 ${compact ? 'text-xs' : 'text-sm'}`}>
+      {goalCaption ? (
+        <p className="text-xs text-ink-muted">{goalCaption}</p>
+      ) : null}
       {rows.map((row) => {
         const pct = pctOf(row.value, row.goal)
         const over = row.goal > 0 && row.value > row.goal

@@ -6,7 +6,7 @@ import { DISH_CATEGORIES } from '@/domain/types'
 import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
-import { todayISO } from '@/domain/kitchen'
+import { isDishRecipe, todayISO } from '@/domain/kitchen'
 import { formatExpiryLabel, resolveServingNutrition } from '@/domain/servings'
 
 export function ReadyPage() {
@@ -23,18 +23,20 @@ export function ReadyPage() {
   const grouped = useMemo(() => {
     const map = new Map<number, typeof batches>()
     for (const b of batches) {
+      const recipe = recipeById.get(b.recipeId)
+      if (recipe && !isDishRecipe(recipe)) continue
       const list = map.get(b.recipeId) ?? []
       list.push(b)
       map.set(b.recipeId, list)
     }
     return [...map.entries()]
-  }, [batches])
+  }, [batches, recipeById])
 
   return (
     <div>
       <PageHeader
         title="Ready to eat"
-        subtitle="Cooked batches waiting to be served through the week."
+        subtitle="Cooked dish portions waiting to be served through the week. Prep stays in the pantry."
       />
       {grouped.length === 0 ? (
         <EmptyState
@@ -178,6 +180,13 @@ function AdjustSheet({
           createdAt: new Date().toISOString(),
         })
       } else {
+        if (
+          !confirm(
+            `Log ${removed} portion${removed === 1 ? '' : 's'} as a Snack on ${consumeDate}? This adds to the plan.`,
+          )
+        ) {
+          return
+        }
         const nutrition = (await db.readyBatches.get(batch.id))!.nutritionPerPortion
         const item = {
           batchId: batch.id,
@@ -240,7 +249,14 @@ function AdjustSheet({
           </Field>
           {amount < batch.portionsLeft ? (
             <>
-              <Field label="Reason for decrease">
+              <Field
+                label="Reason for decrease"
+                hint={
+                  decreaseReason === 'consumed'
+                    ? 'Adds those portions to Snack on the plan.'
+                    : 'Records waste; does not change meals.'
+                }
+              >
                 <select
                   className={inputClass}
                   value={decreaseReason}
@@ -248,12 +264,12 @@ function AdjustSheet({
                     setDecreaseReason(e.target.value as 'consumed' | 'discarded')
                   }
                 >
-                  <option value="consumed">Consumed</option>
-                  <option value="discarded">Discarded</option>
+                  <option value="consumed">Ate it (log as Snack)</option>
+                  <option value="discarded">Discarded / waste</option>
                 </select>
               </Field>
               {decreaseReason === 'consumed' ? (
-                <Field label="Consumed on">
+                <Field label="Snack date">
                   <input
                     className={inputClass}
                     type="date"

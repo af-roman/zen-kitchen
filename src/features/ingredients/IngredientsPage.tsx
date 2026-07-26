@@ -8,6 +8,7 @@ import {
   type Nutrition,
   type Unit,
 } from '@/domain/types'
+import { gramsPerMlFromTbsp, gramsPerTbspFromMl } from '@/domain/measures'
 import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -16,6 +17,7 @@ const emptyForm = {
   category: 'staples' as IngredientCategory,
   unit: 'g' as Unit,
   avgPieceGrams: 50,
+  gramsPerTbsp: 0,
   energyKcal: 0,
   fatG: 0,
   carbsG: 0,
@@ -52,6 +54,7 @@ export function IngredientsPage() {
       category: ing.category,
       unit: ing.unit,
       avgPieceGrams: ing.avgPieceGrams ?? 50,
+      gramsPerTbsp: gramsPerTbspFromMl(ing.gramsPerMl),
       energyKcal: ing.nutritionPer100.energyKcal,
       fatG: ing.nutritionPer100.fatG,
       carbsG: ing.nutritionPer100.carbsG,
@@ -73,6 +76,8 @@ export function IngredientsPage() {
       category: form.category,
       unit: form.unit,
       avgPieceGrams: form.unit === 'pcs' ? form.avgPieceGrams : undefined,
+      gramsPerMl:
+        form.unit === 'g' ? gramsPerMlFromTbsp(form.gramsPerTbsp) : undefined,
       nutritionPer100: nutrition,
       lowStockThreshold: form.lowStockThreshold,
       createdAt: editing?.createdAt ?? new Date().toISOString(),
@@ -133,6 +138,9 @@ export function IngredientsPage() {
                     {INGREDIENT_CATEGORIES.find((c) => c.id === ing.category)?.label}
                   </Badge>
                   <Badge tone="accent">{ing.unit}</Badge>
+                  {ing.unit === 'g' && ing.gramsPerMl != null ? (
+                    <Badge>spoons ok</Badge>
+                  ) : null}
                   <span className="text-xs text-ink-muted">
                     {ing.nutritionPer100.energyKcal} kcal / 100
                     {ing.unit === 'pcs' ? 'g' : ing.unit}
@@ -193,6 +201,22 @@ export function IngredientsPage() {
                 type="number"
                 value={form.avgPieceGrams}
                 onChange={(e) => setForm({ ...form, avgPieceGrams: Number(e.target.value) })}
+              />
+            </Field>
+          ) : null}
+          {form.unit === 'g' ? (
+            <Field
+              label="Grams per tablespoon (optional)"
+              hint="Lets recipes use tsp/tbsp for this solid. Stock stays in grams."
+            >
+              <input
+                className={inputClass}
+                type="number"
+                min={0}
+                step="0.1"
+                value={form.gramsPerTbsp || ''}
+                placeholder="e.g. 18 for salt"
+                onChange={(e) => setForm({ ...form, gramsPerTbsp: Number(e.target.value) })}
               />
             </Field>
           ) : null}

@@ -1,9 +1,19 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 
-const nav = [
-  { to: '/', label: 'Week plan', end: true },
+const nav: {
+  to: string
+  label: string
+  end?: boolean
+  isActive?: (pathname: string) => boolean
+}[] = [
+  {
+    to: '/',
+    label: 'Plan',
+    end: true,
+    isActive: (pathname) => pathname === '/' || pathname.startsWith('/plan/'),
+  },
   { to: '/ready', label: 'Ready to eat' },
   { to: '/recipes', label: 'Recipes' },
   { to: '/pantry', label: 'Pantry' },
@@ -12,6 +22,7 @@ const nav = [
 
 export function AppShell() {
   const navigate = useNavigate()
+  const location = useLocation()
   const activeSession = useLiveQuery(() =>
     db.cookingSessions.where('status').equals('active').first(),
   )
@@ -37,24 +48,32 @@ export function AppShell() {
       </div>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper-elevated/95 backdrop-blur-md">
         <div className="mx-auto flex max-w-3xl justify-around px-1 pb-[env(safe-area-inset-bottom)] pt-1">
-          {nav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] sm:text-xs ${
-                  isActive ? 'text-accent-deep' : 'text-ink-muted'
-                }`
-              }
-            >
-              <span
-                className={`h-1 w-1 rounded-full ${item.to === '/' ? '' : ''}`}
-                aria-hidden
-              />
-              <span className="truncate font-medium">{item.label}</span>
-            </NavLink>
-          ))}
+          {nav.map((item) => {
+            const active = item.isActive
+              ? item.isActive(location.pathname)
+              : item.end
+                ? location.pathname === item.to
+                : location.pathname === item.to ||
+                  location.pathname.startsWith(`${item.to}/`)
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] sm:text-xs ${
+                  active ? 'text-accent-deep' : 'text-ink-muted'
+                }`}
+              >
+                <span
+                  className={`h-1 w-1 rounded-full ${
+                    active ? 'bg-accent-deep' : 'bg-transparent'
+                  }`}
+                  aria-hidden
+                />
+                <span className="truncate font-medium">{item.label}</span>
+              </NavLink>
+            )
+          })}
         </div>
       </nav>
     </div>

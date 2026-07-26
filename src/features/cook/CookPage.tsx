@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
+import { cancelActiveCookingSession } from '@/db/servingOps'
 import type {
   CookLogEntry,
   CookingSession,
@@ -13,7 +14,9 @@ import type {
   Recipe,
   SessionDishPlan,
 } from '@/domain/types'
-import { expiryFromCook } from '@/domain/kitchen'
+import { expiryFromCook, formatQuantity, isPrepRecipe, prepYieldAmount } from '@/domain/kitchen'
+import { formatRecipeAmount, measureUnitOf } from '@/domain/measures'
+import { Sheet } from '@/shared/Sheet'
 import {
   addNutrition,
   emptyNutrition,
@@ -21,10 +24,21 @@ import {
   scaleNutrition,
   timerToSeconds,
 } from '@/domain/nutrition'
-import { groupRecipeSteps } from '@/domain/recipeMath'
+import { groupRecipeSteps, recipeNutrition } from '@/domain/recipeMath'
+import {
+  dishStage,
+  isPrepLeg,
+  isStagedRecipe,
+  stageIngredients,
+  stageLabel,
+  stageSteps,
+} from '@/domain/stages'
+import { unfinishedPrepLegs } from '@/db/sessionChains'
 import { useGoals } from '@/shared/hooks'
 import { MacroBar } from '@/shared/MacroBar'
 import { CookTimer } from '@/shared/Timer'
+import { ChefTipsPanel } from '@/shared/ChefTips'
+import { RecipeStoragePanel } from '@/shared/RecipeStoragePanel'
 import { Badge, Button, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 
 type UsageRow = { ingredientId: number; pantryItemId: number; amountUsed: number }
@@ -36,6 +50,7 @@ export function CookPage() {
   const goals = useGoals()
 
   const session = useLiveQuery(() => db.cookingSessions.get(sessionId), [sessionId])
+  const allSessions = useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
   const recipes = useLiveQuery(() => db.recipes.toArray(), []) ?? []
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
   const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
@@ -84,6 +99,7 @@ export function CookPage() {
     <CookSessionView
       session={session}
       sessionId={sessionId}
+      allSessions={allSessions}
       dishes={localDishes}
       setLocalDishes={setLocalDishes}
       sessionNotes={sessionNotes}
@@ -130,6 +146,7 @@ function capAmount(pantryItemId: number, amountUsed: number, pantry: PantryItem[
 function CookSessionView({
   session,
   sessionId,
+  allSessions,
   dishes,
   setLocalDishes,
   sessionNotes,
@@ -144,6 +161,7 @@ function CookSessionView({
 }: {
   session: CookingSession
   sessionId: number
+  allSessions: CookingSession[]
   dishes: SessionDishPlan[]
   setLocalDishes: React.Dispatch<React.SetStateAction<SessionDishPlan[] | null>>
   sessionNotes: string
@@ -157,6 +175,11 @@ function CookSessionView({
   navigate: ReturnType<typeof useNavigate>
 }) {
   const finishPrompted = useRef(false)
+  const [finishNext, setFinishNext] = useState<{
+    addedReadyBatch: boolean
+    addedPrep: boolean
+  } | null>(null)
+  const [cancelOpen, setCancelOpen] = useState(false)
   const dish = dishes[activeIdx]
   const recipe = dish ? recipeById.get(dish.recipeId) : undefined
 
@@ -169,7 +192,7 @@ function CookSessionView({
     if (!dishes.every((d) => d.completed)) return
     if (finishPrompted.current) return
     finishPrompted.current = true
-    if (confirm('All dishes in this session are cooked. Finish the cooking session now?')) {
+    if (confirm('All recipes in this session are cooked. Finish the cooking session now?')) {
       void finishSession(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,6 +205,14 @@ function CookSessionView({
       next[idx] = { ...next[idx], ...patch }
       return next
     })
+  }
+
+  /** Per-portion nutrition: a leg only touches part of the recipe, so use the recipe instead. */
+  function dishNutrition(d: SessionDishPlan): Nutrition {
+    if (isPrepLeg(d)) return emptyNutrition()
+    const r = recipeById.get(d.recipeId)
+    if (r && isStagedRecipe(r)) return recipeNutrition(r, ingById)
+    return liveNutrition(d)
   }
 
   function liveNutrition(d: SessionDishPlan): Nutrition {
@@ -206,7 +237,7 @@ function CookSessionView({
     const r = recipeById.get(d.recipeId)
     if (!r || d.usage?.length) return
     const scale = d.portions / r.portions
-    const usage = r.ingredients.map((line) =>
+    const usage = stageIngredients(r, dishStage(d)).map((line) =>
       defaultUsageRow(
         line.ingredientId,
         Math.round(line.amount * scale * 10) / 10,
@@ -226,18 +257,23 @@ function CookSessionView({
     const r = recipeById.get(d.recipeId)
     if (!r) return
 
-    const stepsDone = d.stepsDone?.length ?? 0
-    if (stepsDone < r.steps.length) {
+    const stage = dishStage(d)
+    const lines = stageIngredients(r, stage)
+    const steps = stageSteps(r, stage)
+    const stepsDone = steps.filter((s) => d.stepsDone?.includes(s.id)).length
+    if (stepsDone < steps.length) {
       if (
         !confirm(
-          `Only ${stepsDone} of ${r.steps.length} cooking steps are checked off. Mark dish cooked anyway?`,
+          `Only ${stepsDone} of ${steps.length} cooking steps are checked off. Mark ${
+            isPrepLeg(d) ? 'stage done' : 'dish cooked'
+          } anyway?`,
         )
       ) {
         return
       }
     }
 
-    for (const line of r.ingredients) {
+    for (const line of lines) {
       const rows = usageForIngredient(d, line.ingredientId).filter((u) => u.pantryItemId > 0)
       if (rows.length === 0) {
         if (!confirm(`No pantry item selected for ${ingById.get(line.ingredientId)?.name ?? 'an ingredient'}. Finish anyway?`)) {
@@ -263,7 +299,7 @@ function CookSessionView({
         updatedAt: new Date().toISOString(),
       })
     }
-    updateDish(idx, { completed: true, nutritionPerPortion: liveNutrition(d) })
+    updateDish(idx, { completed: true, nutritionPerPortion: dishNutrition(d) })
   }
 
   async function finishSession(skipConfirm = false) {
@@ -277,12 +313,39 @@ function CookSessionView({
     }
     const now = new Date().toISOString()
     const cookedAt = now.slice(0, 10)
+    let addedReadyBatch = false
+    let addedPrep = false
+    const prepYieldNotes: string[] = []
 
     for (const d of dishes) {
       if (!d.completed) continue
       const r = recipeById.get(d.recipeId)
       if (!r) continue
-      const nutrition = d.nutritionPerPortion ?? liveNutrition(d)
+      // Prep legs only record usage and a log line — food appears on the final cook day.
+      if (isPrepLeg(d)) continue
+
+      if (isPrepRecipe(r)) {
+        if (!r.yieldIngredientId || r.yieldAmount == null) continue
+        const yieldAmt = prepYieldAmount(r, d.portions)
+        if (yieldAmt <= 0) continue
+        const yieldIng = ingById.get(r.yieldIngredientId)
+        const pantryItem: Omit<PantryItem, 'id'> = {
+          ingredientId: r.yieldIngredientId,
+          brand: 'Homemade',
+          amountLeft: yieldAmt,
+          expiryDate: expiryFromCook(cookedAt, r.storageDays),
+          createdAt: now,
+          updatedAt: now,
+        }
+        await db.pantryItems.add(pantryItem)
+        addedPrep = true
+        prepYieldNotes.push(
+          `${r.name}: +${yieldAmt} ${yieldIng?.unit ?? ''} ${yieldIng?.name ?? 'pantry'}`.trim(),
+        )
+        continue
+      }
+
+      const nutrition = d.nutritionPerPortion ?? dishNutrition(d)
       const planned = d.portionsPlanned ?? 0
       const batch: Omit<ReadyBatch, 'id'> = {
         recipeId: d.recipeId,
@@ -295,6 +358,7 @@ function CookSessionView({
         notes: d.notes ?? '',
       }
       const batchId = await db.readyBatches.add(batch)
+      addedReadyBatch = true
 
       const allServings = await db.servings.toArray()
       for (const serving of allServings) {
@@ -315,6 +379,10 @@ function CookSessionView({
       void batchId
     }
 
+    const logNotes = [sessionNotes, ...prepYieldNotes.map((n) => `Prep → pantry: ${n}`)]
+      .filter(Boolean)
+      .join('\n')
+
     const log: Omit<CookLogEntry, 'id'> = {
       sessionId,
       date: session.date,
@@ -324,9 +392,13 @@ function CookSessionView({
           const r = recipeById.get(d.recipeId)
           return {
             recipeId: d.recipeId,
-            recipeName: r?.name ?? 'Dish',
+            recipeName: isPrepLeg(d)
+              ? `${r?.name ?? 'Dish'} — ${stageLabel(dishStage(d)).toLowerCase()}`
+              : (r?.name ?? 'Dish'),
             portions: d.portions,
-            nutritionPerPortion: d.nutritionPerPortion ?? liveNutrition(d),
+            nutritionPerPortion: isPrepLeg(d)
+              ? emptyNutrition()
+              : (d.nutritionPerPortion ?? dishNutrition(d)),
             usage: (d.usage ?? []).map((u) => {
               const ing = ingById.get(u.ingredientId)
               return {
@@ -338,7 +410,7 @@ function CookSessionView({
             }),
           }
         }),
-      notes: sessionNotes,
+      notes: logNotes,
       createdAt: now,
     }
     await db.cookLog.add(log)
@@ -349,14 +421,72 @@ function CookSessionView({
       notes: sessionNotes,
       updatedAt: now,
     })
-    navigate('/ready')
+    setFinishNext({ addedReadyBatch, addedPrep })
+  }
+
+  async function cancelSession() {
+    await cancelActiveCookingSession(sessionId)
+    setCancelOpen(false)
+    navigate('/')
+  }
+
+  if (finishNext) {
+    return (
+      <div>
+        <PageHeader title="Session finished" subtitle={`Cooked on ${session.date}`} />
+        <Sheet open title="What’s next?" onClose={() => navigate('/')}>
+          <div className="space-y-3">
+            <p className="text-sm text-ink-muted">
+              {finishNext.addedReadyBatch
+                ? 'Dish portions are in Ready to eat. Assign them to meals when you like.'
+                : null}
+              {finishNext.addedPrep
+                ? `${finishNext.addedReadyBatch ? ' ' : ''}Prep yields were added to the pantry as Homemade.`
+                : null}
+              {!finishNext.addedReadyBatch && !finishNext.addedPrep
+                ? dishes.some((d) => d.completed && isPrepLeg(d))
+                  ? 'Early stage recorded. The food itself arrives when you cook the final stage.'
+                  : 'Session closed. No completed recipes to store.'
+                : null}
+            </p>
+            {finishNext.addedReadyBatch ? (
+              <>
+                <Button className="w-full" onClick={() => navigate('/serve')}>
+                  Serve this week
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  onClick={() => navigate('/ready')}
+                >
+                  View Ready to eat
+                </Button>
+              </>
+            ) : null}
+            {finishNext.addedPrep && !finishNext.addedReadyBatch ? (
+              <Button className="w-full" onClick={() => navigate('/pantry')}>
+                View pantry
+              </Button>
+            ) : null}
+            <Button className="w-full" variant="ghost" onClick={() => navigate('/')}>
+              Back to week
+            </Button>
+          </div>
+        </Sheet>
+      </div>
+    )
   }
 
   if (!recipe || !dish) {
-    return <p className="text-ink-muted">No dishes in this session.</p>
+    return <p className="text-ink-muted">No recipes in this session.</p>
   }
 
   const scale = dish.portions / recipe.portions
+  const stage = dishStage(dish)
+  const stageLines = stageIngredients(recipe, stage)
+  const stageStepList = stageSteps(recipe, stage)
+  const legOfChain = isPrepLeg(dish)
+  const missingPrep = legOfChain ? [] : unfinishedPrepLegs(allSessions, dish)
 
   function updateIngredientUsage(ingredientId: number, rows: UsageRow[]) {
     updateDish(activeIdx, { usage: mergeUsage(dish, ingredientId, rows) })
@@ -365,8 +495,12 @@ function CookSessionView({
   return (
     <div>
       <PageHeader
-        title="Cook"
-        subtitle={`Session ${session.date}`}
+        title={legOfChain ? `Prep · ${stageLabel(stage)}` : 'Cook'}
+        subtitle={
+          legOfChain
+            ? `${recipe.name} — ${session.date}, ${stageLabel(stage).toLowerCase()} the cook`
+            : `Session ${session.date}`
+        }
         actions={
           <Button variant="secondary" onClick={() => navigate('/')}>
             Leave
@@ -376,6 +510,20 @@ function CookSessionView({
       <WarnBanner>
         One session can stay active while you browse — return anytime from the banner.
       </WarnBanner>
+      {legOfChain ? (
+        <p className="mt-2 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
+          This is an early stage only — nothing lands in Ready to eat today. The rest happens on the
+          cook day.
+        </p>
+      ) : null}
+      {missingPrep.length > 0 ? (
+        <div className="mt-2">
+          <WarnBanner>
+            {recipe.name}: the {stageLabel(dishStage(missingPrep[0].dish)).toLowerCase()} stage on{' '}
+            {missingPrep[0].session.date} is not marked done yet.
+          </WarnBanner>
+        </div>
+      ) : null}
 
       <div className="my-4 flex gap-2 overflow-x-auto pb-1">
         {dishes.map((d, idx) => {
@@ -392,6 +540,7 @@ function CookSessionView({
               }`}
             >
               {r?.name ?? 'Dish'}
+              {isPrepLeg(d) ? ` · ${stageLabel(dishStage(d)).toLowerCase()}` : ''}
               {d.completed ? ' ✓' : ''}
             </button>
           )
@@ -399,7 +548,7 @@ function CookSessionView({
       </div>
 
       <div className="mb-4 flex items-end gap-3">
-        <Field label="Portions for this cook">
+        <Field label={isPrepRecipe(recipe) ? 'Batches for this cook' : 'Portions for this cook'}>
           <input
             className={inputClass}
             type="number"
@@ -408,7 +557,7 @@ function CookSessionView({
             disabled={dish.completed}
             onChange={(e) => {
               const portions = Number(e.target.value)
-              const usage = recipe.ingredients.map((line) => {
+              const usage = stageLines.map((line) => {
                 const existing = usageForIngredient(dish, line.ingredientId)
                 if (existing.length > 0) {
                   return {
@@ -427,12 +576,34 @@ function CookSessionView({
           />
         </Field>
         <Badge>{recipe.effort}</Badge>
+        {legOfChain ? <Badge tone="accent">{stageLabel(stage)}</Badge> : null}
+        {isPrepRecipe(recipe) && !legOfChain ? <Badge tone="accent">Adds to pantry</Badge> : null}
       </div>
+      {isPrepRecipe(recipe) && !legOfChain && recipe.yieldIngredientId && recipe.yieldAmount != null ? (
+        <p className="mb-4 text-sm text-ink-muted">
+          Finish will add{' '}
+          <span className="font-medium text-ink">
+            {prepYieldAmount(recipe, dish.portions)}{' '}
+            {ingById.get(recipe.yieldIngredientId)?.unit}
+          </span>{' '}
+          Homemade {ingById.get(recipe.yieldIngredientId)?.name} to the pantry.
+        </p>
+      ) : null}
 
       <section className="mb-5">
-        <h2 className="mb-2 text-lg">Pantry & amounts</h2>
+        <h2 className="mb-2 text-lg">
+          Pantry & amounts
+          {legOfChain ? (
+            <span className="ml-2 text-sm text-ink-muted">
+              ({stageLabel(stage).toLowerCase()} only)
+            </span>
+          ) : null}
+        </h2>
+        {stageLines.length === 0 ? (
+          <p className="text-sm text-ink-muted">This stage needs nothing from the pantry.</p>
+        ) : null}
         <ul className="space-y-3">
-          {recipe.ingredients.map((line) => {
+          {stageLines.map((line, lineIdx) => {
             const ing = ingById.get(line.ingredientId)
             const candidates = pantry.filter((p) => p.ingredientId === line.ingredientId)
             const rows =
@@ -440,13 +611,19 @@ function CookSessionView({
                 ? usageForIngredient(dish, line.ingredientId)
                 : [defaultUsageRow(line.ingredientId, Math.round(line.amount * scale * 10) / 10, pantry)]
             const needed = Math.round(line.amount * scale * 10) / 10
+            const needLabel = ing
+              ? formatRecipeAmount(needed, measureUnitOf(line, ing), ing)
+              : { primary: String(needed) }
 
             return (
-              <li key={line.ingredientId} className="rounded-lg border border-line p-3">
+              <li key={`${line.ingredientId}-${lineIdx}`} className="rounded-lg border border-line p-3">
                 <div className="mb-2 flex justify-between gap-2">
                   <span className="font-medium">{ing?.name}</span>
-                  <span className="text-xs text-ink-muted">
-                    Need {needed} {ing?.unit}
+                  <span className="text-right text-xs text-ink-muted">
+                    Need {needLabel.primary}
+                    {needLabel.stockHint ? (
+                      <span className="block">({needLabel.stockHint})</span>
+                    ) : null}
                   </span>
                 </div>
                 {rows.map((row, rowIdx) => (
@@ -526,13 +703,34 @@ function CookSessionView({
 
       <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
         <h2 className="mb-3 text-lg">Live nutrition / portion</h2>
-        <MacroBar nutrition={liveNutrition(dish)} goals={goals} />
+        <MacroBar
+          nutrition={isStagedRecipe(recipe) ? recipeNutrition(recipe, ingById) : liveNutrition(dish)}
+          goals={goals}
+          goalCaption={
+            isStagedRecipe(recipe)
+              ? 'Whole recipe per portion, across all stages'
+              : 'Compared to your daily targets (per portion)'
+          }
+        />
       </section>
 
+      <ChefTipsPanel recipe={recipe} />
+
+      <RecipeStoragePanel
+        storageDays={recipe.storageDays}
+        storageEnv={recipe.storageEnv}
+        storageInstructions={recipe.storageInstructions}
+      />
+
       <section className="mb-5">
-        <h2 className="mb-2 text-lg">Steps</h2>
+        <h2 className="mb-2 text-lg">
+          Steps
+          {legOfChain ? (
+            <span className="ml-2 text-sm text-ink-muted">({stageLabel(stage).toLowerCase()})</span>
+          ) : null}
+        </h2>
         <div className="space-y-4">
-          {groupRecipeSteps(recipe.steps).map((section) => {
+          {groupRecipeSteps(stageStepList).map((section) => {
             const sectionDone = section.steps.filter((s) =>
               dish.stepsDone?.includes(s.id),
             ).length
@@ -589,7 +787,8 @@ function CookSessionView({
           })}
         </div>
         <p className="mt-2 text-xs text-ink-muted">
-          Progress: {dish.stepsDone?.length ?? 0}/{recipe.steps.length} steps
+          Progress: {stageStepList.filter((s) => dish.stepsDone?.includes(s.id)).length}/
+          {stageStepList.length} steps
         </p>
       </section>
 
@@ -604,10 +803,18 @@ function CookSessionView({
 
       {!dish.completed ? (
         <Button className="mt-4 w-full" onClick={() => void finishDish(activeIdx)}>
-          Mark dish cooked
+          {legOfChain
+            ? 'Mark stage done'
+            : isPrepRecipe(recipe)
+              ? 'Mark prep cooked'
+              : 'Mark dish cooked'}
         </Button>
       ) : (
-        <p className="mt-4 text-center text-sm text-ok">Dish marked cooked for this session.</p>
+        <p className="mt-4 text-center text-sm text-ok">
+          {legOfChain
+            ? `${stageLabel(stage)} stage done — continue on the cook day.`
+            : `${isPrepRecipe(recipe) ? 'Prep' : 'Dish'} marked cooked for this session.`}
+        </p>
       )}
 
       <Field label="Session notes">
@@ -623,8 +830,35 @@ function CookSessionView({
         Finish cooking session
       </Button>
       <p className="mt-2 text-center text-xs text-ink-muted">
-        You can finish without completing every dish.
+        You can finish without completing every recipe. Active: {formatQuantity(recipe, dish.portions)}.
       </p>
+
+      <Button
+        className="mt-6 w-full"
+        variant="danger"
+        onClick={() => setCancelOpen(true)}
+      >
+        Cancel session
+      </Button>
+      <p className="mt-2 text-center text-xs text-ink-muted">
+        Discards all progress. Pantry is unchanged and nothing is added to Ready to eat.
+      </p>
+
+      <Sheet open={cancelOpen} title="Cancel cooking session?" onClose={() => setCancelOpen(false)}>
+        <div className="space-y-3">
+          <p className="text-sm text-ink-muted">
+            Step checkoffs, pantry picks, and dish notes for this session will be lost. Any
+            ingredients already marked cooked will be returned to the pantry. Nothing is added to
+            Ready to eat or the cook log.
+          </p>
+          <Button className="w-full" variant="danger" onClick={() => void cancelSession()}>
+            Cancel session
+          </Button>
+          <Button className="w-full" variant="ghost" onClick={() => setCancelOpen(false)}>
+            Keep cooking
+          </Button>
+        </div>
+      </Sheet>
     </div>
   )
 }

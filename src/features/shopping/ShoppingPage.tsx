@@ -11,7 +11,8 @@ import {
 import { db } from '@/db/database'
 import type { Restock, RestockLine, ShoppingListItem } from '@/domain/types'
 import { isLowStock, todayISO, uid } from '@/domain/kitchen'
-import { stockTotals, fileToDataUrl } from '@/domain/recipeMath'
+import { stockTotals } from '@/domain/recipeMath'
+import { ImageUploadField } from '@/shared/ImageUploadField'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -937,21 +938,14 @@ function RestockSheet({
                     }}
                   />
                 </Field>
-                <Field label="Photo">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (!f) return
-                      void fileToDataUrl(f).then((url) => {
-                        const next = [...lines]
-                        next[idx] = { ...line, imageDataUrl: url }
-                        setLines(next)
-                      })
-                    }}
-                  />
-                </Field>
+                <ImageUploadField
+                  value={line.imageDataUrl}
+                  onChange={(url) => {
+                    const next = [...lines]
+                    next[idx] = { ...line, imageDataUrl: url }
+                    setLines(next)
+                  }}
+                />
               </div>
               <Button variant="ghost" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>
                 Remove

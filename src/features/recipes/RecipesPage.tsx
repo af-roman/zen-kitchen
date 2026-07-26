@@ -8,14 +8,16 @@ import {
   type DishCategory,
   type Effort,
   type Recipe,
+  type RecipeKind,
 } from '@/domain/types'
-import { recipePortionsAvailable } from '@/domain/kitchen'
+import { isPrepRecipe, recipeKindOf, recipePortionsAvailable } from '@/domain/kitchen'
 import { recipeNutrition, stockTotals } from '@/domain/recipeMath'
 import { useGoals } from '@/shared/hooks'
 import { MacroInline } from '@/shared/MacroBar'
 import { Badge, Button, EmptyState, PageHeader, inputClass } from '@/shared/ui'
 
 type SortKey = 'name' | 'effort' | 'newest'
+type KindFilter = 'all' | RecipeKind
 
 export function RecipesPage() {
   const navigate = useNavigate()
@@ -27,6 +29,7 @@ export function RecipesPage() {
   const stock = useMemo(() => stockTotals(pantry), [pantry])
 
   const [q, setQ] = useState('')
+  const [kind, setKind] = useState<KindFilter>('all')
   const [category, setCategory] = useState<DishCategory | 'all'>('all')
   const [effort, setEffort] = useState<Effort | 'all'>('all')
   const [cookableOnly, setCookableOnly] = useState(false)
@@ -36,6 +39,7 @@ export function RecipesPage() {
   const filtered = useMemo(() => {
     let list = [...recipes]
     list = list.filter((r) => {
+      if (kind !== 'all' && recipeKindOf(r) !== kind) return false
       if (category !== 'all' && r.category !== category) return false
       if (effort !== 'all' && r.effort !== effort) return false
       if (q && !r.name.toLowerCase().includes(q.toLowerCase())) return false
@@ -50,13 +54,13 @@ export function RecipesPage() {
       return a.name.localeCompare(b.name)
     })
     return list
-  }, [recipes, q, category, effort, cookableOnly, sort, stock])
+  }, [recipes, q, kind, category, effort, cookableOnly, sort, stock])
 
   return (
     <div>
       <PageHeader
         title="Recipes"
-        subtitle="Batch-friendly dishes for a calm Japanese week."
+        subtitle="Dishes for the week, and prep bases that refill the pantry."
         actions={
           <Button onClick={() => navigate('/recipes/new')}>Add</Button>
         }
@@ -68,6 +72,15 @@ export function RecipesPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <select
+          className={inputClass}
+          value={kind}
+          onChange={(e) => setKind(e.target.value as KindFilter)}
+        >
+          <option value="all">All kinds</option>
+          <option value="dish">Dishes</option>
+          <option value="prep">Prep (pantry)</option>
+        </select>
         <select
           className={inputClass}
           value={category}
@@ -125,6 +138,11 @@ export function RecipesPage() {
               stock={stock}
               nutrition={recipeNutrition(recipe, ingById)}
               goalsKcal={goals.dailyKcal}
+              yieldName={
+                recipe.yieldIngredientId
+                  ? ingById.get(recipe.yieldIngredientId)?.name
+                  : undefined
+              }
             />
           ))}
         </ul>
@@ -138,16 +156,19 @@ function RecipeRow({
   compact,
   stock,
   nutrition,
+  yieldName,
 }: {
   recipe: Recipe
   compact: boolean
   stock: Map<number, number>
   nutrition: ReturnType<typeof recipeNutrition>
   goalsKcal: number
+  yieldName?: string
 }) {
   const avail = recipePortionsAvailable(recipe, stock)
   const cat = DISH_CATEGORIES.find((c) => c.id === recipe.category)?.label
   const effort = EFFORT_LEVELS.find((e) => e.id === recipe.effort)?.label
+  const prep = isPrepRecipe(recipe)
 
   if (compact) {
     return (
@@ -156,7 +177,10 @@ function RecipeRow({
           to={`/recipes/${recipe.id}`}
           className="flex items-center justify-between gap-2 rounded-lg border border-line bg-paper-elevated px-3 py-2"
         >
-          <span className="font-medium">{recipe.name}</span>
+          <span className="font-medium">
+            {recipe.name}
+            {prep ? <span className="ml-1.5 text-xs text-accent-deep">Prep</span> : null}
+          </span>
           <span className="text-xs text-ink-muted">
             {avail.available}/{avail.needed} · {effort}
           </span>
@@ -175,22 +199,31 @@ function RecipeRow({
           {recipe.imageDataUrl ? (
             <img src={recipe.imageDataUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full items-center justify-center text-xs text-ink-muted">Dish</div>
+            <div className="flex h-full items-center justify-center text-xs text-ink-muted">
+              {prep ? 'Prep' : 'Dish'}
+            </div>
           )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="font-display text-lg text-accent-deep">{recipe.name}</div>
           <div className="mt-1 flex flex-wrap gap-1.5">
+            {prep ? <Badge tone="accent">Prep</Badge> : null}
             <Badge>{cat}</Badge>
             <Badge tone="accent">{effort}</Badge>
             <Badge tone={avail.cookable ? 'ok' : 'neutral'}>
               {avail.available}/{avail.needed} ingredients
             </Badge>
           </div>
-          <div className="mt-2">
-            <MacroInline nutrition={nutrition} />
-            <span className="text-xs text-ink-muted"> / portion</span>
-          </div>
+          {prep && recipe.yieldAmount != null && yieldName ? (
+            <p className="mt-2 text-xs text-ink-muted">
+              Yields {recipe.yieldAmount} → {yieldName} (pantry)
+            </p>
+          ) : (
+            <div className="mt-2">
+              <MacroInline nutrition={nutrition} />
+              <span className="text-xs text-ink-muted"> / portion</span>
+            </div>
+          )}
         </div>
       </Link>
     </li>

@@ -58,11 +58,11 @@ export function CookLogPage() {
             {entry.dishes.map((d, idx) => (
               <div key={idx} className="rounded-lg border border-line p-3">
                 <div className="font-medium">
-                  {d.recipeName} · {d.portions} portions
+                  {d.recipeName} · ×{d.portions}
                 </div>
                 <div className="mt-1">
                   <MacroInline nutrition={d.nutritionPerPortion} />
-                  <span className="text-xs text-ink-muted"> / portion</span>
+                  <span className="text-xs text-ink-muted"> / unit</span>
                 </div>
                 <ul className="mt-2 text-sm text-ink-muted">
                   {d.usage.map((u, i) => (

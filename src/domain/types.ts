@@ -2,6 +2,9 @@
 
 export type Unit = 'g' | 'ml' | 'pcs'
 
+/** How a recipe line is entered/shown; stock & nutrition stay in Unit. */
+export type MeasureUnit = Unit | 'tsp' | 'tbsp'
+
 export type IngredientCategory =
   | 'staples'
   | 'proteins'
@@ -92,6 +95,11 @@ export interface Ingredient {
   category: IngredientCategory
   unit: Unit
   avgPieceGrams?: number
+  /**
+   * Density for solids (unit === 'g') measured by tsp/tbsp in recipes.
+   * grams of ingredient per millilitre of volume.
+   */
+  gramsPerMl?: number
   nutritionPer100: Nutrition
   lowStockThreshold: number
   createdAt: string
@@ -111,7 +119,12 @@ export interface PantryItem {
 
 export interface RecipeIngredientLine {
   ingredientId: number
+  /** Always in the ingredient’s stock unit (g / ml / pcs). */
   amount: number
+  /** Preferred display/entry unit; defaults to ingredient.unit when omitted. */
+  measureUnit?: MeasureUnit
+  /** Stage that consumes this line; defaults to 0 (cook day). */
+  daysAhead?: number
 }
 
 export interface RecipeStep {
@@ -122,19 +135,37 @@ export interface RecipeStep {
   timerUnit?: TimeUnit
   /** Named subrecipe section, e.g. "Rice", "Sauce", "Garnish" */
   group?: string
+  /** 0 = cook day (default), 1 = day before, 2 = two days before */
+  daysAhead?: number
 }
+
+export type RecipeKind = 'dish' | 'prep'
 
 export interface Recipe {
   id?: number
   name: string
   description: string
-  tip: string
+  /** Optional attribution: cookbook, friend, URL, etc. */
+  source?: string
+  /** Chef’s tips shown between ingredients and steps */
+  tips: string[]
+  /** @deprecated Prefer tips — kept for older saved recipes */
+  tip?: string
+  /** dish = Ready to eat / meals; prep = pantry yield. Default dish when missing. */
+  recipeKind?: RecipeKind
+  /** Prep only: ingredient this cook produces */
+  yieldIngredientId?: number
+  /** Prep only: amount yielded at the recipe’s base scale (ingredient unit) */
+  yieldAmount?: number
   category: DishCategory
   effort: Effort
+  /** Dish portions, or prep batch scale */
   portions: number
   imageDataUrl?: string
   ingredients: RecipeIngredientLine[]
   steps: RecipeStep[]
+  /** Optional free-text storage notes (container, reheating, freezing tips, etc.). */
+  storageInstructions?: string
   storageDays: number
   storageEnv: StorageEnv
   createdAt: string
@@ -151,6 +182,10 @@ export interface SessionDishPlan {
   portionsPlanned?: number
   /** Set when finished cooking this dish in the session */
   completed?: boolean
+  /** Which stage of the recipe this session cooks; absent/0 = cook day */
+  stageDaysAhead?: number
+  /** Shared uid linking every leg (stage) of one planned dish */
+  chainId?: string
   notes?: string
   /** Ingredient usage chosen during cook */
   usage?: {
@@ -188,7 +223,8 @@ export interface ReadyBatch {
 
 export interface ServingItem {
   batchId?: number
-  recipeId: number
+  /** Omitted for ad-hoc / off-plan dishes */
+  recipeId?: number
   portions: number
   /** Nutrition per portion at time of planning */
   nutrition: Nutrition
@@ -196,6 +232,17 @@ export interface ServingItem {
   plannedSessionId?: number
   /** True when the backing session/batch was removed */
   needsFood?: boolean
+  /** Display name when there is no recipe (eat-out / off-plan) */
+  name?: string
+  /**
+   * Ad-hoc only: pantry amounts consumed for this dish.
+   * Applied on save, restored when the meal is cleared/replaced.
+   */
+  usage?: {
+    ingredientId: number
+    pantryItemId: number
+    amountUsed: number
+  }[]
 }
 
 export interface Serving {

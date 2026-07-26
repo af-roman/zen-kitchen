@@ -1,5 +1,6 @@
 import type { CookingSession, Ingredient, Nutrition, Recipe, RecipeStep } from '@/domain/types'
 import { emptyNutrition, nutritionForAmount, addNutrition, scaleNutrition } from '@/domain/nutrition'
+import { dishStage, stageIngredients } from '@/domain/stages'
 
 export function recipeNutrition(
   recipe: Recipe,
@@ -25,7 +26,10 @@ export function stockTotals(pantryAmounts: { ingredientId: number; amountLeft: n
   return map
 }
 
-/** Ingredient amounts a session still needs to pull from pantry (skips completed dishes). */
+/**
+ * Ingredient amounts a session still needs to pull from pantry (skips completed dishes).
+ * Only the stage each dish cooks counts, so chained prep legs are not double-counted.
+ */
 export function sessionIngredientNeeds(
   session: CookingSession,
   recipes: Map<number, Recipe> | Recipe[],
@@ -38,7 +42,7 @@ export function sessionIngredientNeeds(
     const recipe = recipeById.get(dish.recipeId)
     if (!recipe) continue
     const scale = dish.portions / recipe.portions
-    for (const line of recipe.ingredients) {
+    for (const line of stageIngredients(recipe, dishStage(dish))) {
       map.set(line.ingredientId, (map.get(line.ingredientId) ?? 0) + line.amount * scale)
     }
   }
@@ -88,6 +92,15 @@ export function groupRecipeSteps(steps: RecipeStep[]): RecipeStepGroup[] {
     }
   }
   return groups
+}
+
+/** Normalize tips from new `tips` array or legacy single `tip`. */
+export function recipeTips(recipe: { tips?: string[]; tip?: string }): string[] {
+  if (Array.isArray(recipe.tips)) {
+    return recipe.tips.map((t) => t.trim()).filter(Boolean)
+  }
+  if (recipe.tip?.trim()) return [recipe.tip.trim()]
+  return []
 }
 
 export async function fileToDataUrl(file: File, maxWidth = 640): Promise<string> {

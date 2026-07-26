@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "import:joc": "node scripts/import-joc.mjs"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

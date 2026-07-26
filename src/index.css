@@ -13,6 +13,8 @@
   --color-warn: #a86b3c;
   --color-ok: #5a7a62;
   --color-danger: #8b4a42;
+  --color-plan-session: #3d4a3f;
+  --color-plan-meal: #c24e42;
   --radius-card: 0.875rem;
 }
 

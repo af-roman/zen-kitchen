@@ -1,7 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Bootstrap } from './app/Bootstrap'
 import { AppShell } from './app/AppShell'
-import { WeekPlanPage } from './features/plan/WeekPlanPage'
+import { PlanPage } from './features/plan/PlanPage'
+import { DayDetailPage } from './features/plan/DayDetailPage'
 import { ServePage } from './features/plan/ServePage'
 import { ReadyPage } from './features/ready/ReadyPage'
 import { RecipesPage } from './features/recipes/RecipesPage'
@@ -24,7 +25,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppShell />}>
-            <Route index element={<WeekPlanPage />} />
+            <Route index element={<PlanPage />} />
+            <Route path="plan/:date" element={<DayDetailPage />} />
             <Route path="serve" element={<ServePage />} />
             <Route path="ready" element={<ReadyPage />} />
             <Route path="recipes" element={<RecipesPage />} />

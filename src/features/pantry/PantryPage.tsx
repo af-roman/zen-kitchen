@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
@@ -10,7 +11,7 @@ import {
 } from '@/domain/types'
 import { isLowStock, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
-import { fileToDataUrl } from '@/domain/recipeMath'
+import { ImageUploadField } from '@/shared/ImageUploadField'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -63,6 +64,14 @@ export function PantryPage() {
     setOpen(true)
   }
 
+  const shortCount = useMemo(() => {
+    return items.filter((item) => {
+      const ing = byId.get(item.ingredientId)
+      if (!ing) return false
+      return isOutOfStock(item.amountLeft) || isLowStock(item.amountLeft, ing.lowStockThreshold)
+    }).length
+  }, [items, byId])
+
   return (
     <div>
       <PageHeader
@@ -70,6 +79,16 @@ export function PantryPage() {
         subtitle="What you have on the shelf — brands, amounts, and expiry."
         actions={<Button onClick={startCreate}>Add item</Button>}
       />
+      {shortCount > 0 ? (
+        <div className="mb-4">
+          <WarnBanner>
+            {shortCount} item{shortCount === 1 ? '' : 's'} low or out ·{' '}
+            <Link to="/shopping" className="font-medium underline">
+              Open shopping list
+            </Link>
+          </WarnBanner>
+        </div>
+      ) : null}
       <div className="mb-4 grid gap-2 sm:grid-cols-2">
         <input
           className={inputClass}
@@ -263,19 +282,7 @@ function PantryItemSheet({
             ))}
           </select>
         </Field>
-        <Field label="Photo">
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const f = e.target.files?.[0]
-              if (f) void fileToDataUrl(f).then(setImageDataUrl)
-            }}
-          />
-          {imageDataUrl ? (
-            <img src={imageDataUrl} alt="" className="mt-2 h-24 w-24 rounded-lg object-cover" />
-          ) : null}
-        </Field>
+        <ImageUploadField value={imageDataUrl} onChange={setImageDataUrl} />
         <Field label="Brand">
           <input className={inputClass} value={brand} onChange={(e) => setBrand(e.target.value)} />
         </Field>

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { z } from 'zod'
 import { db } from '@/db/database'
+import { clearKitchenCatalog, markCatalogResetDone } from '@/db/seed'
 import { Button, PageHeader, WarnBanner } from '@/shared/ui'
 
 const backupSchema = z.object({
@@ -108,11 +109,35 @@ export function BackupPage() {
           await db.meta.bulkAdd(data.meta)
         },
       )
+      // Prevent the clean-slate migration from wiping a restored curated kitchen.
+      await markCatalogResetDone()
       setMessage('Backup restored. Reloading…')
       setTimeout(() => window.location.reload(), 600)
     } catch (e) {
       console.error(e)
       setMessage(e instanceof Error ? e.message : 'Import failed')
+    }
+  }
+
+  async function resetKitchen() {
+    if (
+      !confirm(
+        'Reset kitchen data? This deletes all recipes, ingredients, pantry, sessions, meals, shopping, and cook log. Goals are kept. Export a backup first if you might need this data.',
+      )
+    ) {
+      return
+    }
+    if (!confirm('Really wipe the kitchen catalog? This cannot be undone.')) {
+      return
+    }
+    try {
+      await clearKitchenCatalog()
+      await markCatalogResetDone()
+      setMessage('Kitchen data cleared. Reloading…')
+      setTimeout(() => window.location.reload(), 600)
+    } catch (e) {
+      console.error(e)
+      setMessage(e instanceof Error ? e.message : 'Reset failed')
     }
   }
 
@@ -126,6 +151,21 @@ export function BackupPage() {
         Local data usually survives app updates. Backup still matters for new devices and
         cleared browser storage.
       </WarnBanner>
+
+      <section className="mt-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4 text-sm text-ink-muted">
+        <h2 className="mb-2 font-display text-lg text-accent-deep">Clean kitchen workflow</h2>
+        <ol className="list-decimal space-y-1.5 pl-5">
+          <li>Start from an empty catalog (reload after this update, or use Reset below).</li>
+          <li>Add ingredients first, then recipes, in the app.</li>
+          <li>Download a backup periodically so you don’t lose work.</li>
+          <li>On another device or after a wipe, restore that backup — it becomes your kitchen.</li>
+        </ol>
+        <p className="mt-3">
+          Zen Kitchen no longer auto-loads scraped seed recipes. Your backup is the source of
+          truth for a curated kitchen.
+        </p>
+      </section>
+
       <div className="mt-5 space-y-3">
         <Button className="w-full" onClick={() => void exportBackup()}>
           Download backup
@@ -145,8 +185,12 @@ export function BackupPage() {
           onChange={(e) => {
             const f = e.target.files?.[0]
             if (f) void importBackup(f)
+            e.target.value = ''
           }}
         />
+        <Button className="w-full" variant="danger" onClick={() => void resetKitchen()}>
+          Reset kitchen data
+        </Button>
         {message ? <p className="text-sm text-ink-muted">{message}</p> : null}
       </div>
     </div>

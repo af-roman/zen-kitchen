@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo } from 'react'
 import { db } from '@/db/database'
@@ -19,14 +19,14 @@ import {
   stageLabel,
   stageOfLine,
 } from '@/domain/stages'
-import { timerToSeconds } from '@/domain/nutrition'
+import { timerToSeconds, formatDuration } from '@/domain/nutrition'
 import { useGoals } from '@/shared/hooks'
 import { MacroBar } from '@/shared/MacroBar'
 import { ChefTipsPanel } from '@/shared/ChefTips'
 import { assetUrl } from '@/shared/assetUrl'
 import { RecipeStoragePanel } from '@/shared/RecipeStoragePanel'
-import { Badge, Button, PageHeader, WarnBanner } from '@/shared/ui'
-import { formatDuration } from '@/domain/nutrition'
+import { Badge, Button, WarnBanner } from '@/shared/ui'
+import { Sheet } from '@/shared/Sheet'
 
 export function RecipeDetailPage() {
   const { id } = useParams()
@@ -42,18 +42,31 @@ export function RecipeDetailPage() {
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
   const stock = useMemo(() => stockTotals(pantry), [pantry])
 
-  if (!recipe) {
-    return <p className="text-ink-muted">Recipe not found.</p>
+  function close() {
+    navigate('/recipes')
   }
 
-  const nutrition = recipeNutrition(recipe, ingById)
-  const avail = recipePortionsAvailable(recipe, stock)
-  const prep = isPrepRecipe(recipe)
-  const staged = isStagedRecipe(recipe)
-  const lead = leadDaysAhead(recipe)
-  const stages = activeRecipeStages(recipe)
-  const yieldIng = recipe.yieldIngredientId
-    ? ingById.get(recipe.yieldIngredientId)
+  if (!id || id === 'new' || Number.isNaN(recipeId)) {
+    return null
+  }
+
+  if (!recipe) {
+    return (
+      <Sheet open title="Recipe" onClose={close} wide>
+        <p className="text-ink-muted">Recipe not found.</p>
+      </Sheet>
+    )
+  }
+
+  const r = recipe
+  const nutrition = recipeNutrition(r, ingById)
+  const avail = recipePortionsAvailable(r, stock)
+  const prep = isPrepRecipe(r)
+  const staged = isStagedRecipe(r)
+  const lead = leadDaysAhead(r)
+  const stages = activeRecipeStages(r)
+  const yieldIng = r.yieldIngredientId
+    ? ingById.get(r.yieldIngredientId)
     : undefined
   const upcoming = [
     ...sessions
@@ -69,7 +82,7 @@ export function RecipeDetailPage() {
   async function startCookNow() {
     if (staged) {
       const ok = confirm(
-        `${recipe!.name} starts ${lead} day${lead === 1 ? '' : 's'} ahead. Cooking now covers only the cook-day stage — plan a session to book the earlier prep days.\n\nCook the final stage now?`,
+        `${r.name} starts ${lead} day${lead === 1 ? '' : 's'} ahead. Cooking now covers only the cook-day stage — plan a session to book the earlier prep days.\n\nCook the final stage now?`,
       )
       if (!ok) return
     }
@@ -84,7 +97,7 @@ export function RecipeDetailPage() {
     const newId = await db.cookingSessions.add({
       date: today,
       status: 'active',
-      dishes: [{ recipeId, portions: recipe!.portions, stepsDone: [] }],
+      dishes: [{ recipeId, portions: r.portions, stepsDone: [] }],
       notes: '',
       startedAt: now,
       createdAt: now,
@@ -98,66 +111,86 @@ export function RecipeDetailPage() {
   }
 
   async function remove() {
-    if (!confirm('Delete this recipe?')) return
+    if (!confirm(`Delete “${r.name}”? This cannot be undone.`)) return
     await db.recipes.delete(recipeId)
-    navigate('/recipes')
+    close()
   }
 
   return (
-    <div>
-      <PageHeader
-        title={recipe.name}
-        subtitle={recipe.description}
-        actions={
-          <Button variant="secondary" onClick={() => navigate(`/recipes/${recipeId}/edit`)}>
-            Edit
-          </Button>
-        }
-      />
-      {recipe.imageDataUrl ? (
+    <Sheet open title={r.name} onClose={close} wide>
+      {r.description ? (
+        <p className="mb-3 text-sm text-ink-muted">{r.description}</p>
+      ) : null}
+
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+        <Button className="flex-1" onClick={() => void startCookNow()}>
+          Cook now
+        </Button>
+        <Button className="flex-1" variant="secondary" onClick={() => void addToSession()}>
+          Add to session
+        </Button>
+        <Button
+          className="flex-1"
+          variant="secondary"
+          onClick={() => navigate(`/recipes/${recipeId}/edit`)}
+        >
+          Edit
+        </Button>
+      </div>
+      <Button variant="danger" className="mb-4 w-full" onClick={() => void remove()}>
+        Delete recipe
+      </Button>
+
+      {!avail.cookable ? (
+        <div className="mb-4">
+          <WarnBanner>Some ingredients are missing from the pantry for a full cook.</WarnBanner>
+        </div>
+      ) : null}
+
+      {r.imageDataUrl ? (
         <img
-          src={assetUrl(recipe.imageDataUrl)}
+          src={assetUrl(r.imageDataUrl)}
           alt=""
           className="mb-4 h-48 w-full rounded-[var(--radius-card)] object-cover"
         />
       ) : null}
+
       <div className="mb-4 flex flex-wrap gap-1.5">
         {prep ? <Badge tone="accent">Prep</Badge> : null}
         {staged ? <Badge tone="accent">{leadTimeLabel(lead)}</Badge> : null}
-        <Badge>{DISH_CATEGORIES.find((c) => c.id === recipe.category)?.label}</Badge>
-        <Badge tone="accent">{EFFORT_LEVELS.find((e) => e.id === recipe.effort)?.label}</Badge>
-        <Badge>
-          {formatQuantity(recipe, recipe.portions)}
-        </Badge>
+        <Badge>{DISH_CATEGORIES.find((c) => c.id === r.category)?.label}</Badge>
+        <Badge tone="accent">{EFFORT_LEVELS.find((e) => e.id === r.effort)?.label}</Badge>
+        <Badge>{formatQuantity(r, r.portions)}</Badge>
         <Badge tone={avail.cookable ? 'ok' : 'warn'}>
           {avail.available}/{avail.needed} in pantry
         </Badge>
       </div>
-      {recipe.source ? (
+
+      {r.source ? (
         <p className="mb-4 text-sm text-ink-muted">
           Source:{' '}
-          {/^https?:\/\//i.test(recipe.source.trim()) ? (
+          {/^https?:\/\//i.test(r.source.trim()) ? (
             <a
-              href={recipe.source.trim()}
+              href={r.source.trim()}
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent-deep underline"
             >
-              {recipe.source.trim()}
+              {r.source.trim()}
             </a>
           ) : (
-            recipe.source
+            r.source
           )}
         </p>
       ) : null}
-      {prep && recipe.yieldAmount != null && yieldIng ? (
+
+      {prep && r.yieldAmount != null && yieldIng ? (
         <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
           <h2 className="mb-2 text-lg">Pantry yield</h2>
           <p className="text-sm text-ink-muted">
-            One cook of {recipe.portions}{' '}
-            {recipe.portions === 1 ? 'batch' : 'batches'} adds{' '}
+            One cook of {r.portions} {r.portions === 1 ? 'batch' : 'batches'} adds{' '}
             <span className="font-medium text-ink">
-              {prepYieldAmount(recipe, recipe.portions)} {yieldIng.unit}
+              {prepYieldAmount(r, r.portions)} {yieldIng.unit}
             </span>{' '}
             of {yieldIng.name} to the pantry (Homemade).
           </p>
@@ -187,7 +220,7 @@ export function RecipeDetailPage() {
       <section className="mb-5">
         <h2 className="mb-2 text-lg">Ingredients</h2>
         <ul className="space-y-1.5">
-          {recipe.ingredients.map((line, idx) => {
+          {r.ingredients.map((line, idx) => {
             const ing = ingById.get(line.ingredientId)
             const have = stock.get(line.ingredientId) ?? 0
             const formatted = ing
@@ -209,7 +242,7 @@ export function RecipeDetailPage() {
                 <span className={`text-right ${have >= line.amount ? 'text-ok' : 'text-warn'}`}>
                   {formatted.primary}
                   {formatted.stockHint ? (
-                    <span className="block text-xs text-ink-muted">({formatted.stockHint})</span>
+                    <span className="text-ink-muted"> ({formatted.stockHint})</span>
                   ) : null}
                   <span className="block text-xs text-ink-muted">
                     have {have}
@@ -222,12 +255,10 @@ export function RecipeDetailPage() {
         </ul>
       </section>
 
-      <ChefTipsPanel recipe={recipe} />
-
       <RecipeStoragePanel
-        storageDays={recipe.storageDays}
-        storageEnv={recipe.storageEnv}
-        storageInstructions={recipe.storageInstructions}
+        storageDays={r.storageDays}
+        storageEnv={r.storageEnv}
+        storageInstructions={r.storageInstructions}
       />
 
       <section className="mb-5">
@@ -246,18 +277,12 @@ export function RecipeDetailPage() {
               <div className="space-y-4">
                 {groupRecipeSteps(stage.steps).map((section) => (
                   <div
-                    key={`${section.name ?? 'steps'}-${section.steps[0]?.id}`}
-                    className={
-                      section.name
-                        ? 'rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3'
-                        : undefined
-                    }
+                    key={`${section.name}-${section.steps[0]?.id}`}
+                    className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
                   >
-                    {section.name ? (
-                      <h4 className="mb-2 font-display text-base text-accent-deep">
-                        {section.name}
-                      </h4>
-                    ) : null}
+                    <h4 className="mb-2 font-display text-base text-accent-deep">
+                      {section.name}
+                    </h4>
                     <ol className="space-y-3">
                       {section.steps.map((step, idx) => (
                         <li
@@ -282,34 +307,7 @@ export function RecipeDetailPage() {
         </div>
       </section>
 
-      {!avail.cookable ? (
-        <div className="mb-4">
-          <WarnBanner>Some ingredients are missing from the pantry for a full cook.</WarnBanner>
-        </div>
-      ) : null}
-
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button className="flex-1" onClick={() => void startCookNow()}>
-          Cook now
-        </Button>
-        <Button className="flex-1" variant="secondary" onClick={() => void addToSession()}>
-          Add to session
-        </Button>
-      </div>
-      {!recipe.seeded ? (
-        <Button variant="danger" className="mt-3 w-full" onClick={() => void remove()}>
-          Delete recipe
-        </Button>
-      ) : (
-        <p className="mt-3 text-center text-xs text-ink-muted">
-          Seeded recipe — edit freely; delete if you prefer your own set.
-        </p>
-      )}
-      <div className="mt-4 text-center">
-        <Link to="/recipes" className="text-sm text-ink-muted underline">
-          Back to recipes
-        </Link>
-      </div>
-    </div>
+      <ChefTipsPanel recipe={r} className="mb-1" />
+    </Sheet>
   )
 }

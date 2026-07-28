@@ -9,8 +9,7 @@
     "build:pages": "VITE_BASE_PATH=/zen-kitchen/ npm run build && cp dist/index.html dist/404.html",
     "preview:pages": "npm run build:pages && vite preview --base /zen-kitchen/",
     "lint": "oxlint",
-    "preview": "vite preview",
-    "import:joc": "node scripts/import-joc.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "date-fns": "^4.4.0",

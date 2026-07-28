@@ -2,8 +2,8 @@ import { Link } from 'react-router-dom'
 import { PageHeader } from '@/shared/ui'
 
 const links = [
-  { to: '/ingredients', label: 'Ingredient library', hint: 'Food types for recipes and stock' },
   { to: '/shopping', label: 'Shopping', hint: 'Low stock and restocks' },
+  { to: '/ingredients', label: 'Ingredient library', hint: 'Food types for recipes and stock' },
   { to: '/log', label: 'Cook log', hint: 'Past cooking sessions' },
   { to: '/notebook', label: 'Notebook', hint: 'Nutrition at a glance' },
   { to: '/goals', label: 'Kitchen goals', hint: 'Daily energy and macros' },

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, Outlet, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
@@ -20,6 +20,28 @@ import { Badge, Button, EmptyState, PageHeader, inputClass } from '@/shared/ui'
 type SortKey = 'name' | 'effort' | 'newest'
 type KindFilter = 'all' | RecipeKind
 
+const FILTERS_KEY = 'zen-kitchen:recipes-list'
+
+type SavedFilters = {
+  q: string
+  kind: KindFilter
+  category: DishCategory | 'all'
+  effort: Effort | 'all'
+  cookableOnly: boolean
+  sort: SortKey
+  compact: boolean
+}
+
+function loadFilters(): Partial<SavedFilters> {
+  try {
+    const raw = sessionStorage.getItem(FILTERS_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as SavedFilters
+  } catch {
+    return {}
+  }
+}
+
 export function RecipesPage() {
   const navigate = useNavigate()
   const goals = useGoals()
@@ -29,13 +51,19 @@ export function RecipesPage() {
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
   const stock = useMemo(() => stockTotals(pantry), [pantry])
 
-  const [q, setQ] = useState('')
-  const [kind, setKind] = useState<KindFilter>('all')
-  const [category, setCategory] = useState<DishCategory | 'all'>('all')
-  const [effort, setEffort] = useState<Effort | 'all'>('all')
-  const [cookableOnly, setCookableOnly] = useState(false)
-  const [sort, setSort] = useState<SortKey>('name')
-  const [compact, setCompact] = useState(false)
+  const saved = useMemo(() => loadFilters(), [])
+  const [q, setQ] = useState(saved.q ?? '')
+  const [kind, setKind] = useState<KindFilter>(saved.kind ?? 'all')
+  const [category, setCategory] = useState<DishCategory | 'all'>(saved.category ?? 'all')
+  const [effort, setEffort] = useState<Effort | 'all'>(saved.effort ?? 'all')
+  const [cookableOnly, setCookableOnly] = useState(saved.cookableOnly ?? false)
+  const [sort, setSort] = useState<SortKey>(saved.sort ?? 'name')
+  const [compact, setCompact] = useState(saved.compact ?? false)
+
+  useEffect(() => {
+    const next: SavedFilters = { q, kind, category, effort, cookableOnly, sort, compact }
+    sessionStorage.setItem(FILTERS_KEY, JSON.stringify(next))
+  }, [q, kind, category, effort, cookableOnly, sort, compact])
 
   const filtered = useMemo(() => {
     let list = [...recipes]
@@ -148,6 +176,8 @@ export function RecipesPage() {
           ))}
         </ul>
       )}
+
+      <Outlet />
     </div>
   )
 }

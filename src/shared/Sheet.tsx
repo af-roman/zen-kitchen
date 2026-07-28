@@ -36,7 +36,7 @@ export function Sheet({
       />
       <div
         className={`relative z-10 max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-line bg-paper-elevated p-5 shadow-xl sm:rounded-2xl ${
-          wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'
+          wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'
         }`}
         role="dialog"
         aria-modal="true"

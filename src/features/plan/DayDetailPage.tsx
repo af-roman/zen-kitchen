@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { format, parseISO } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/database'
 import {
   consolidateDuplicateMealSlots,
@@ -130,6 +130,10 @@ export function DayDetailPage() {
     navigate(`/cook/${sessionId}`)
   }
 
+  function shiftDay(direction: -1 | 1) {
+    navigate(`/plan/${format(addDays(parseISO(date), direction), 'yyyy-MM-dd')}`)
+  }
+
   return (
     <div>
       <PageHeader
@@ -142,22 +146,23 @@ export function DayDetailPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={() => shiftDay(-1)}>
+          ←
+        </Button>
+        <span className="min-w-0 flex-1 text-center text-sm font-medium sm:flex-none sm:text-left">
+          {format(parseISO(date), 'd MMM yyyy')}
+        </span>
+        <Button variant="secondary" onClick={() => shiftDay(1)}>
+          →
+        </Button>
+        {!isToday ? (
+          <Button variant="secondary" onClick={() => navigate(`/plan/${today}`)}>
+            Today
+          </Button>
+        ) : null}
         {isToday ? <Badge tone="accent">Today</Badge> : null}
         {past ? <Badge>Past</Badge> : null}
-        {!past ? (
-          <>
-            <Button variant="primary" onClick={() => navigate(`/serve?date=${date}`)}>
-              Serve meals
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => navigate(`/sessions/new?date=${date}`)}
-            >
-              Plan session
-            </Button>
-          </>
-        ) : null}
       </div>
 
       {needsFoodCount > 0 ? (

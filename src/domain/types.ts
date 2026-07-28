@@ -133,7 +133,7 @@ export interface RecipeStep {
   requiresTimer: boolean
   timerDuration?: number
   timerUnit?: TimeUnit
-  /** Named subrecipe section, e.g. "Rice", "Sauce", "Garnish" */
+  /** Named subrecipe this step belongs to (required; e.g. "Rice", "Sauce", "Main") */
   group?: string
   /** 0 = cook day (default), 1 = day before, 2 = two days before */
   daysAhead?: number
@@ -323,5 +323,8 @@ export interface WasteEntry {
 export interface Meta {
   id: number
   schemaVersion: number
+  /** Bootstrapping completed (goals etc.). No longer means “catalog was seeded”. */
   seededAt?: string
+  /** One-shot clean-slate wipe of the old auto-seed catalog. */
+  catalogResetAt?: string
 }

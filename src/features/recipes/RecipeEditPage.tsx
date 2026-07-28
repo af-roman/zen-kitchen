@@ -34,9 +34,9 @@ import {
 } from '@/domain/stages'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { RecipeStorageFields } from '@/shared/RecipeStoragePanel'
-import { groupRecipeSteps, recipeTips } from '@/domain/recipeMath'
+import { groupRecipeSteps, recipeTips, DEFAULT_SUBRECIPE, ensureStepGroups } from '@/domain/recipeMath'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
-import { Badge, Button, Field, PageHeader, inputClass } from '@/shared/ui'
+import { Button, Field, PageHeader, inputClass } from '@/shared/ui'
 
 /** Earliest stage first, preserving each step’s relative order inside its stage. */
 function orderStepsByStage(steps: RecipeStep[]): RecipeStep[] {
@@ -77,8 +77,10 @@ export function RecipeEditPage() {
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>()
   const [lines, setLines] = useState<RecipeIngredientLine[]>([])
   const [steps, setSteps] = useState<RecipeStep[]>([
-    { id: uid(), description: '', requiresTimer: false },
+    { id: uid(), description: '', requiresTimer: false, group: DEFAULT_SUBRECIPE },
   ])
+  /** Local subrecipe title drafts while typing (keyed by first step id). */
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({})
   /** null = closed; 'add' = append; number = replace line at index */
   const [ingredientPicker, setIngredientPicker] = useState<'add' | number | null>(null)
 
@@ -148,12 +150,21 @@ export function RecipeEditPage() {
     setStorageInstructions(existing.storageInstructions ?? '')
     setImageDataUrl(existing.imageDataUrl)
     setLines(existing.ingredients)
-    setSteps(existing.steps)
+    setSteps(
+      existing.steps.length > 0
+        ? ensureStepGroups(existing.steps)
+        : [{ id: uid(), description: '', requiresTimer: false, group: DEFAULT_SUBRECIPE }],
+    )
   }, [existing, ingredients])
 
   async function save() {
-    if (!name.trim() || lines.length === 0 || steps.every((s) => !s.description.trim())) {
+    const normalizedSteps = ensureStepGroups(steps)
+    if (!name.trim() || lines.length === 0 || normalizedSteps.every((s) => !s.description.trim())) {
       alert('Name, at least one ingredient, and one step are required.')
+      return
+    }
+    if (normalizedSteps.some((s) => !s.group?.trim())) {
+      alert('Every step must belong to a named subrecipe.')
       return
     }
     if (isPrep && (!yieldIngredientId || yieldAmount <= 0)) {
@@ -206,11 +217,11 @@ export function RecipeEditPage() {
           daysAhead: daysAhead > 0 ? daysAhead : undefined,
         }
       }),
-      steps: orderStepsByStage(steps.filter((s) => s.description.trim())).map((s) => {
+      steps: orderStepsByStage(normalizedSteps.filter((s) => s.description.trim())).map((s) => {
         const daysAhead = stageOfStep(s)
         return {
           ...s,
-          group: s.group?.trim() || undefined,
+          group: s.group!.trim(),
           daysAhead: daysAhead > 0 ? daysAhead : undefined,
         }
       }),
@@ -250,7 +261,7 @@ export function RecipeEditPage() {
           <input
             className={inputClass}
             value={source}
-            placeholder="e.g. Just One Cookbook, Yuki, https://…"
+            placeholder="e.g. cookbook, friend, https://…"
             onChange={(e) => setSource(e.target.value)}
           />
         </Field>
@@ -519,128 +530,159 @@ export function RecipeEditPage() {
         <section>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg">Steps</h2>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  const last = steps[steps.length - 1]
-                  setSteps([
-                    ...steps,
-                    {
-                      id: uid(),
-                      description: '',
-                      requiresTimer: false,
-                      group: last?.group?.trim() || undefined,
-                      daysAhead: last?.daysAhead,
-                    },
-                  ])
-                }}
-              >
-                Add step
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  const name = prompt('Subrecipe name (e.g. Rice, Sauce, Garnish)')
-                  if (name === null) return
-                  const group = name.trim() || undefined
-                  setSteps([
-                    ...steps,
-                    { id: uid(), description: '', requiresTimer: false, group },
-                  ])
-                }}
-              >
-                Add subrecipe
-              </Button>
-            </div>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const name = prompt('Subrecipe name (e.g. Rice, Sauce, Garnish)')
+                if (name === null) return
+                const group = name.trim()
+                if (!group) {
+                  alert('Subrecipe name is required.')
+                  return
+                }
+                setSteps([
+                  ...ensureStepGroups(steps),
+                  { id: uid(), description: '', requiresTimer: false, group },
+                ])
+              }}
+            >
+              Add subrecipe
+            </Button>
           </div>
           <p className="mb-3 text-xs text-ink-muted">
-            Optional: group steps into named subrecipes (rice, sauce, garnish…). Consecutive steps
-            with the same name form one section. Use “When” for work that happens on an earlier day —
-            planning the cook then also books a prep session for it.
+            Every step belongs to a named subrecipe (rice, sauce, garnish…). Use “When” for work
+            that happens on an earlier day — planning the cook then also books a prep session for
+            it. Add steps inside each subrecipe.
           </p>
           {multiStage ? (
             <p className="mb-3 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-xs text-ink-muted">
               Spans {lead + 1} days — starts {lead} day{lead === 1 ? '' : 's'} before the cook.
             </p>
           ) : null}
-          <datalist id="recipe-subrecipe-names">
-            {[
-              ...new Set(
-                steps.map((s) => s.group?.trim()).filter((g): g is string => Boolean(g)),
-              ),
-            ].map((g) => (
-              <option key={g} value={g} />
-            ))}
-          </datalist>
           <div className="space-y-4">
-            {groupRecipeSteps(steps).map((section) => (
+            {groupRecipeSteps(steps).map((section) => {
+              // Stable key: first step id only — must NOT include the editable name.
+              const sectionKey = section.steps[0]?.id ?? section.name
+              const draftName = groupDrafts[sectionKey]
+              const displayName = draftName ?? section.name
+              return (
               <div
-                key={`${section.name ?? 'ungrouped'}-${section.steps[0]?.id}`}
-                className={`space-y-3 ${
-                  section.name
-                    ? 'rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3'
-                    : ''
-                }`}
+                key={sectionKey}
+                className="space-y-3 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
               >
-                {section.name ? (
-                  <div className="flex items-center gap-2">
-                    <Badge tone="accent">{section.name}</Badge>
-                    <span className="text-xs text-ink-muted">
-                      {section.steps.length} step{section.steps.length === 1 ? '' : 's'}
-                    </span>
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Field label="Subrecipe name">
+                      <input
+                        className={inputClass}
+                        value={displayName}
+                        onChange={(e) => {
+                          const nextName = e.target.value
+                          setGroupDrafts((prev) => ({ ...prev, [sectionKey]: nextName }))
+                        }}
+                        onBlur={() => {
+                          const ids = new Set(section.steps.map((s) => s.id))
+                          const trimmed =
+                            (groupDrafts[sectionKey] ?? section.name).trim() || DEFAULT_SUBRECIPE
+                          setSteps(
+                            steps.map((s) =>
+                              ids.has(s.id)
+                                ? { ...s, group: trimmed }
+                                : { ...s, group: s.group?.trim() || DEFAULT_SUBRECIPE },
+                            ),
+                          )
+                          setGroupDrafts((prev) => {
+                            const next = { ...prev }
+                            delete next[sectionKey]
+                            return next
+                          })
+                        }}
+                      />
+                    </Field>
                   </div>
-                ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      className="!py-1 !text-xs"
+                      onClick={() => {
+                        const lastInSection = section.steps[section.steps.length - 1]
+                        const insertAfter = lastInSection
+                          ? steps.findIndex((s) => s.id === lastInSection.id)
+                          : steps.length - 1
+                        const groupName =
+                          (groupDrafts[sectionKey] ?? section.name).trim() || DEFAULT_SUBRECIPE
+                        const newStep: RecipeStep = {
+                          id: uid(),
+                          description: '',
+                          requiresTimer: false,
+                          group: groupName,
+                          daysAhead: lastInSection?.daysAhead,
+                        }
+                        const next = [...ensureStepGroups(steps)]
+                        next.splice(Math.max(insertAfter, -1) + 1, 0, newStep)
+                        setSteps(next)
+                      }}
+                    >
+                      Add step
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="!py-1 !text-xs"
+                      onClick={() => {
+                        const ids = new Set(section.steps.map((s) => s.id))
+                        const remaining = ensureStepGroups(steps).filter((s) => !ids.has(s.id))
+                        setGroupDrafts((prev) => {
+                          const next = { ...prev }
+                          delete next[sectionKey]
+                          return next
+                        })
+                        if (remaining.length === 0) {
+                          setSteps([
+                            {
+                              id: uid(),
+                              description: '',
+                              requiresTimer: false,
+                              group: DEFAULT_SUBRECIPE,
+                            },
+                          ])
+                          return
+                        }
+                        setSteps(remaining)
+                      }}
+                    >
+                      Remove subrecipe
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-ink-muted">
+                  {section.steps.length} step{section.steps.length === 1 ? '' : 's'}
+                </p>
                 {section.steps.map((step, localIdx) => {
                   const idx = steps.findIndex((s) => s.id === step.id)
                   return (
                     <div key={step.id} className="rounded-lg border border-line bg-paper-elevated p-3">
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <Field label="Subrecipe">
-                          <input
-                            className={inputClass}
-                            list="recipe-subrecipe-names"
-                            value={step.group ?? ''}
-                            placeholder="Optional — e.g. Sauce"
-                            onChange={(e) => {
-                              const next = [...steps]
-                              next[idx] = {
-                                ...step,
-                                group: e.target.value || undefined,
-                              }
-                              setSteps(next)
-                            }}
-                          />
-                        </Field>
-                        <Field label="When">
-                          <select
-                            className={inputClass}
-                            value={stageOfStep(step)}
-                            onChange={(e) => {
-                              const daysAhead = Number(e.target.value)
-                              const next = [...steps]
-                              next[idx] = {
-                                ...step,
-                                daysAhead: daysAhead > 0 ? daysAhead : undefined,
-                              }
-                              setSteps(next)
-                            }}
-                          >
-                            {stageOptions().map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </Field>
-                      </div>
-                      <Field
-                        label={
-                          section.name
-                            ? `${section.name} · step ${localIdx + 1}`
-                            : `Step ${idx + 1}`
-                        }
-                      >
+                      <Field label="When">
+                        <select
+                          className={inputClass}
+                          value={stageOfStep(step)}
+                          onChange={(e) => {
+                            const daysAhead = Number(e.target.value)
+                            const next = [...steps]
+                            next[idx] = {
+                              ...step,
+                              daysAhead: daysAhead > 0 ? daysAhead : undefined,
+                            }
+                            setSteps(next)
+                          }}
+                        >
+                          {stageOptions().map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label={`${displayName} · step ${localIdx + 1}`}>
                         <textarea
                           className={inputClass}
                           rows={2}
@@ -699,7 +741,23 @@ export function RecipeEditPage() {
                       <Button
                         variant="ghost"
                         className="mt-1"
-                        onClick={() => setSteps(steps.filter((_, i) => i !== idx))}
+                        onClick={() => {
+                          const remaining = steps.filter((_, i) => i !== idx)
+                          if (remaining.length === 0) {
+                            setSteps([
+                              {
+                                id: uid(),
+                                description: '',
+                                requiresTimer: false,
+                                group:
+                                  (groupDrafts[sectionKey] ?? section.name).trim() ||
+                                  DEFAULT_SUBRECIPE,
+                              },
+                            ])
+                            return
+                          }
+                          setSteps(ensureStepGroups(remaining))
+                        }}
                       >
                         Remove step
                       </Button>
@@ -707,7 +765,8 @@ export function RecipeEditPage() {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </div>
         </section>
 

@@ -30,10 +30,11 @@ export default function App() {
             <Route path="plan/:date" element={<DayDetailPage />} />
             <Route path="serve" element={<ServePage />} />
             <Route path="ready" element={<ReadyPage />} />
-            <Route path="recipes" element={<RecipesPage />} />
             <Route path="recipes/new" element={<RecipeEditPage />} />
-            <Route path="recipes/:id" element={<RecipeDetailPage />} />
             <Route path="recipes/:id/edit" element={<RecipeEditPage />} />
+            <Route path="recipes" element={<RecipesPage />}>
+              <Route path=":id" element={<RecipeDetailPage />} />
+            </Route>
             <Route path="pantry" element={<PantryPage />} />
             <Route path="more" element={<MorePage />} />
             <Route path="ingredients" element={<IngredientsPage />} />

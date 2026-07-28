@@ -97,7 +97,7 @@ export function Field({
 }
 
 export const inputClass =
-  'w-full rounded-lg border border-line bg-paper-elevated px-3 py-2 text-sm text-ink outline-none transition focus:border-accent'
+  'w-full rounded-lg border border-line bg-paper-elevated px-3 py-2 text-base text-ink outline-none transition focus:border-accent'
 
 export function Badge({
   children,

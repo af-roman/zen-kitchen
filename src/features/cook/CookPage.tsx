@@ -58,6 +58,8 @@ export function CookPage() {
   const [activeIdx, setActiveIdx] = useState(0)
   const [localDishes, setLocalDishes] = useState<SessionDishPlan[] | null>(null)
   const [sessionNotes, setSessionNotes] = useState('')
+  /** Only auto-start a planned session once per page visit — not after Cancel. */
+  const didAutoStart = useRef(false)
 
   useEffect(() => {
     if (!session) return
@@ -79,13 +81,17 @@ export function CookPage() {
 
   useEffect(() => {
     if (!session) return
-    if (session.status === 'planned') {
-      void db.cookingSessions.update(sessionId, {
-        status: 'active',
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
+    if (session.status === 'active') {
+      didAutoStart.current = true
+      return
     }
+    if (session.status !== 'planned' || didAutoStart.current) return
+    didAutoStart.current = true
+    void db.cookingSessions.update(sessionId, {
+      status: 'active',
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
   }, [session, sessionId])
 
   const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id!, r])), [recipes])
@@ -736,21 +742,15 @@ function CookSessionView({
             ).length
             return (
               <div
-                key={`${section.name ?? 'steps'}-${section.steps[0]?.id}`}
-                className={
-                  section.name
-                    ? 'rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3'
-                    : undefined
-                }
+                key={`${section.name}-${section.steps[0]?.id}`}
+                className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
               >
-                {section.name ? (
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <h3 className="font-display text-base text-accent-deep">{section.name}</h3>
-                    <span className="text-xs text-ink-muted">
-                      {sectionDone}/{section.steps.length}
-                    </span>
-                  </div>
-                ) : null}
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="font-display text-base text-accent-deep">{section.name}</h3>
+                  <span className="text-xs text-ink-muted">
+                    {sectionDone}/{section.steps.length}
+                  </span>
+                </div>
                 <ul className="space-y-3">
                   {section.steps.map((step) => {
                     const done = dish.stepsDone?.includes(step.id)
@@ -775,7 +775,7 @@ function CookSessionView({
                         {step.requiresTimer && step.timerDuration && step.timerUnit ? (
                           <CookTimer
                             presetSeconds={timerToSeconds(step.timerDuration, step.timerUnit)}
-                            label={section.name ? `${section.name} timer` : 'Step timer'}
+                            label={`${section.name} timer`}
                           />
                         ) : null}
                       </li>

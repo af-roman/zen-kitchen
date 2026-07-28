@@ -73,17 +73,26 @@ export function reservedIngredientUsage(
   return map
 }
 
+export const DEFAULT_SUBRECIPE = 'Main'
+
 export type RecipeStepGroup = {
-  /** Null when steps have no subrecipe name */
-  name: string | null
+  name: string
   steps: RecipeStep[]
+}
+
+/** Ensure every step has a non-empty subrecipe name (legacy rows → Main). */
+export function ensureStepGroups(steps: RecipeStep[]): RecipeStep[] {
+  return steps.map((step) => ({
+    ...step,
+    group: step.group?.trim() || DEFAULT_SUBRECIPE,
+  }))
 }
 
 /** Group consecutive steps that share the same subrecipe name. */
 export function groupRecipeSteps(steps: RecipeStep[]): RecipeStepGroup[] {
   const groups: RecipeStepGroup[] = []
-  for (const step of steps) {
-    const name = step.group?.trim() || null
+  for (const step of ensureStepGroups(steps)) {
+    const name = step.group!.trim()
     const last = groups[groups.length - 1]
     if (last && last.name === name) {
       last.steps.push(step)

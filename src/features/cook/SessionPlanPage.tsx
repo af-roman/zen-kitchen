@@ -3,7 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { DISH_CATEGORIES, type CookingSession, type SessionDishPlan } from '@/domain/types'
+import { dishCategoryLabel, recipeCategory } from '@/domain/dishTaxonomy'
 import {
+  isAlwaysAvailable,
   isDishRecipe,
   isLowStock,
   isPrepRecipe,
@@ -11,6 +13,7 @@ import {
   todayISO,
 } from '@/domain/kitchen'
 import { isPastDate } from '@/domain/servings'
+import { appAlert } from '@/shared/dialog'
 import { reservedIngredientUsage, stockTotals } from '@/domain/recipeMath'
 import {
   dishStage,
@@ -22,7 +25,7 @@ import {
 } from '@/domain/stages'
 import { stageLegsFor, syncStageLegs, withChainIds } from '@/db/sessionChains'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
-import { Badge, Button, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
+import { Badge, Button, Field, PageHeader, RemoveButton, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
 export function SessionPlanPage() {
@@ -91,13 +94,13 @@ export function SessionPlanPage() {
       recipes
         .filter((r) => r.id != null)
         .map((r) => {
-          const cat = DISH_CATEGORIES.find((c) => c.id === r.category)?.label
+          const cat = dishCategoryLabel(r.category)
           const kind = isPrepRecipe(r) ? 'Prep' : cat
           return {
             id: r.id!,
             label: r.name,
             detail: kind,
-            group: r.category,
+            group: recipeCategory(r),
             searchText: `${r.name} ${kind ?? ''} ${r.description ?? ''}`,
           }
         }),
@@ -132,8 +135,8 @@ export function SessionPlanPage() {
 
   /** Other sessions from today through this cook date reserve pantry before / alongside this one. */
   const reserved = useMemo(
-    () => reservedIngredientUsage(sessions, recipeById, today, date, editId),
-    [sessions, recipeById, today, date, editId],
+    () => reservedIngredientUsage(sessions, recipeById, today, date, editId, ingById),
+    [sessions, recipeById, today, date, editId, ingById],
   )
 
   /** Prep sessions this cook date implies, grouped by date. */
@@ -164,21 +167,26 @@ export function SessionPlanPage() {
     }
     return [...map.entries()].map(([ingredientId, amount]) => {
       const ing = ingById.get(ingredientId)
+      const always = isAlwaysAvailable(ing)
       const onHand = stock.get(ingredientId) ?? 0
       const reservedAmt = reserved.get(ingredientId) ?? 0
-      const have = Math.max(0, onHand - reservedAmt)
-      const low = ing ? isLowStock(have, ing.lowStockThreshold) || have < amount : true
-      return { ingredientId, amount, have, onHand, reservedAmt, ing, low }
+      const have = always ? amount : Math.max(0, onHand - reservedAmt)
+      const low = always
+        ? false
+        : ing
+          ? isLowStock(have, ing.lowStockThreshold) || have < amount
+          : true
+      return { ingredientId, amount, have, onHand, reservedAmt, ing, low, always }
     })
   }, [dishes, recipeById, ingById, stock, reserved])
 
   async function save() {
     if (isPastDate(date)) {
-      alert('Cooking sessions cannot be planned for past days.')
+      await appAlert('Cooking sessions cannot be planned for past days.', { title: 'Cannot save' })
       return
     }
     if (dishes.length === 0) {
-      alert('Add at least one recipe.')
+      await appAlert('Add at least one recipe.', { title: 'Cannot save' })
       return
     }
     const pastLeg = legDays.find((d) => d.past)
@@ -186,8 +194,9 @@ export function SessionPlanPage() {
       const names = pastLeg.legs
         .map((l) => recipeById.get(l.recipeId)?.name ?? 'A recipe')
         .join(', ')
-      alert(
+      await appAlert(
         `${names} needs prep on ${pastLeg.date}, which is in the past. Pick a later cook date.`,
+        { title: 'Cannot save' },
       )
       return
     }
@@ -290,8 +299,7 @@ export function SessionPlanPage() {
                         <span className="block text-xs text-ink-muted">
                           {isPrepRecipe(selected)
                             ? 'Prep'
-                            : (DISH_CATEGORIES.find((c) => c.id === selected.category)?.label ??
-                              selected.category)}
+                            : dishCategoryLabel(selected.category)}
                           {' · '}
                           Tap to change
                         </span>
@@ -316,12 +324,11 @@ export function SessionPlanPage() {
                       </Field>
                     </div>
                     {!dateLocked ? (
-                      <Button
-                        variant="ghost"
+                      <RemoveButton
+                        icon
+                        className="mt-7"
                         onClick={() => setDishes(dishes.filter((_, i) => i !== idx))}
-                      >
-                        ×
-                      </Button>
+                      />
                     ) : null}
                   </div>
                   {prep ? (
@@ -399,9 +406,9 @@ export function SessionPlanPage() {
                   <span className="flex flex-wrap items-center justify-end gap-2">
                     {Math.round(n.amount * 10) / 10} {n.ing?.unit}
                     <Badge tone={n.low ? 'warn' : 'ok'}>
-                      avail {Math.round(n.have * 10) / 10}
+                      {n.always ? 'always available' : `avail ${Math.round(n.have * 10) / 10}`}
                     </Badge>
-                    {n.reservedAmt > 0 ? (
+                    {!n.always && n.reservedAmt > 0 ? (
                       <span className="text-xs text-ink-muted">
                         (stock {Math.round(n.onHand * 10) / 10} − reserved{' '}
                         {Math.round(n.reservedAmt * 10) / 10})

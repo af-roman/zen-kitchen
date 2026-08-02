@@ -22,10 +22,6 @@ export function addNutrition(a: Nutrition, b: Nutrition): Nutrition {
   }
 }
 
-export function sumNutrition(list: Nutrition[]): Nutrition {
-  return list.reduce(addNutrition, emptyNutrition())
-}
-
 /** Nutrition for an amount given per-100 values and unit. */
 export function nutritionForAmount(
   per100: Nutrition,
@@ -59,10 +55,6 @@ export function pctOf(value: number, goal: number): number {
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10
-}
-
-export function formatNutrition(n: Nutrition): string {
-  return `${Math.round(n.energyKcal)} kcal · C ${n.carbsG}g · P ${n.proteinG}g · F ${n.fatG}g`
 }
 
 export function timerToSeconds(duration: number, unit: 'seconds' | 'minutes' | 'hours'): number {

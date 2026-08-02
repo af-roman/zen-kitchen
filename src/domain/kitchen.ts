@@ -1,5 +1,5 @@
 import { addDays, format, parseISO } from 'date-fns'
-import type { Recipe, RecipeKind, StorageEnv } from './types'
+import type { BatchStorage, Recipe, RecipeKind, StorageEnv } from './types'
 
 export function recipeKindOf(recipe: { recipeKind?: RecipeKind } | null | undefined): RecipeKind {
   return recipe?.recipeKind === 'prep' ? 'prep' : 'dish'
@@ -43,7 +43,7 @@ export function expiryFromCook(cookedAt: string, storageDays: number): string {
   return format(addDays(parseISO(cookedAt.slice(0, 10)), storageDays), 'yyyy-MM-dd')
 }
 
-export function storageLabel(env: StorageEnv): string {
+export function storageLabel(env: BatchStorage | StorageEnv): string {
   if (env === 'fridge') return 'Fridge'
   if (env === 'freezer') return 'Freezer'
   return 'Room temperature'
@@ -57,9 +57,17 @@ export function isOutOfStock(amountLeft: number): boolean {
   return amountLeft <= 0
 }
 
+/** Tap water and similar — never gated on pantry stock. */
+export function isAlwaysAvailable(
+  ing: { alwaysAvailable?: boolean } | null | undefined,
+): boolean {
+  return Boolean(ing?.alwaysAvailable)
+}
+
 export function recipePortionsAvailable(
   recipe: Recipe,
   stockByIngredient: Map<number, number>,
+  ingredientById?: Map<number, { alwaysAvailable?: boolean }>,
 ): { needed: number; available: number; cookable: boolean } {
   // Lines can repeat an ingredient across stages, so total per ingredient.
   const perIngredient = new Map<number, number>()
@@ -71,6 +79,10 @@ export function recipePortionsAvailable(
   }
   let available = 0
   for (const [ingredientId, amount] of perIngredient) {
+    if (isAlwaysAvailable(ingredientById?.get(ingredientId))) {
+      available += 1
+      continue
+    }
     const have = stockByIngredient.get(ingredientId) ?? 0
     if (have >= amount) available += 1
   }

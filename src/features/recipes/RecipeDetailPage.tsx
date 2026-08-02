@@ -1,10 +1,12 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { db } from '@/db/database'
-import { DISH_CATEGORIES, EFFORT_LEVELS } from '@/domain/types'
+import { EFFORT_LEVELS } from '@/domain/types'
+import { dishCategoryLabel, recipeTechnique, techniqueLabel } from '@/domain/dishTaxonomy'
 import {
   formatQuantity,
+  isAlwaysAvailable,
   isPrepRecipe,
   prepYieldAmount,
   recipePortionsAvailable,
@@ -25,6 +27,14 @@ import { MacroBar } from '@/shared/MacroBar'
 import { ChefTipsPanel } from '@/shared/ChefTips'
 import { assetUrl } from '@/shared/assetUrl'
 import { RecipeStoragePanel } from '@/shared/RecipeStoragePanel'
+import {
+  galleryItemsFromSteps,
+  StepImageGallery,
+  StepImageThumb,
+} from '@/shared/StepImageGallery'
+import { normalizeYoutubeUrl } from '@/domain/youtube'
+import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
+import { appConfirm } from '@/shared/dialog'
 import { Badge, Button, WarnBanner } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -38,6 +48,7 @@ export function RecipeDetailPage() {
   const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
   const servings = useLiveQuery(() => db.servings.toArray(), []) ?? []
   const sessions = useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
+  const [galleryStartId, setGalleryStartId] = useState<string | null>(null)
 
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
   const stock = useMemo(() => stockTotals(pantry), [pantry])
@@ -60,7 +71,7 @@ export function RecipeDetailPage() {
 
   const r = recipe
   const nutrition = recipeNutrition(r, ingById)
-  const avail = recipePortionsAvailable(r, stock)
+  const avail = recipePortionsAvailable(r, stock, ingById)
   const prep = isPrepRecipe(r)
   const staged = isStagedRecipe(r)
   const lead = leadDaysAhead(r)
@@ -78,17 +89,19 @@ export function RecipeDetailPage() {
           .filter((s) => s.items.some((i) => i.recipeId === recipeId))
           .map((s) => `${s.meal} on ${s.date}`)),
   ].slice(0, 5)
+  const stepGalleryItems = galleryItemsFromSteps(r.steps)
+  const youtubeHref = normalizeYoutubeUrl(r.youtubeUrl ?? '')
 
   async function startCookNow() {
     if (staged) {
-      const ok = confirm(
+      const ok = await appConfirm(
         `${r.name} starts ${lead} day${lead === 1 ? '' : 's'} ahead. Cooking now covers only the cook-day stage — plan a session to book the earlier prep days.\n\nCook the final stage now?`,
       )
       if (!ok) return
     }
     const active = await db.cookingSessions.where('status').equals('active').first()
     if (active) {
-      if (!confirm('A session is already active. Open it instead?')) return
+      if (!(await appConfirm('A session is already active. Open it instead?'))) return
       navigate(`/cook/${active.id}`)
       return
     }
@@ -111,12 +124,13 @@ export function RecipeDetailPage() {
   }
 
   async function remove() {
-    if (!confirm(`Delete “${r.name}”? This cannot be undone.`)) return
+    if (!(await appConfirm(`Delete “${r.name}”? This cannot be undone.`, { danger: true, confirmLabel: 'Delete' }))) return
     await db.recipes.delete(recipeId)
     close()
   }
 
   return (
+    <>
     <Sheet open title={r.name} onClose={close} wide>
       {r.description ? (
         <p className="mb-3 text-sm text-ink-muted">{r.description}</p>
@@ -158,7 +172,8 @@ export function RecipeDetailPage() {
       <div className="mb-4 flex flex-wrap gap-1.5">
         {prep ? <Badge tone="accent">Prep</Badge> : null}
         {staged ? <Badge tone="accent">{leadTimeLabel(lead)}</Badge> : null}
-        <Badge>{DISH_CATEGORIES.find((c) => c.id === r.category)?.label}</Badge>
+        <Badge>{dishCategoryLabel(r.category)}</Badge>
+        <Badge>{techniqueLabel(recipeTechnique(r))}</Badge>
         <Badge tone="accent">{EFFORT_LEVELS.find((e) => e.id === r.effort)?.label}</Badge>
         <Badge>{formatQuantity(r, r.portions)}</Badge>
         <Badge tone={avail.cookable ? 'ok' : 'warn'}>
@@ -183,6 +198,8 @@ export function RecipeDetailPage() {
           )}
         </p>
       ) : null}
+
+      {youtubeHref ? <YoutubeWatchButton href={youtubeHref} className="mb-4" /> : null}
 
       {prep && r.yieldAmount != null && yieldIng ? (
         <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
@@ -222,6 +239,7 @@ export function RecipeDetailPage() {
         <ul className="space-y-1.5">
           {r.ingredients.map((line, idx) => {
             const ing = ingById.get(line.ingredientId)
+            const always = isAlwaysAvailable(ing)
             const have = stock.get(line.ingredientId) ?? 0
             const formatted = ing
               ? formatRecipeAmount(line.amount, measureUnitOf(line, ing), ing)
@@ -239,14 +257,19 @@ export function RecipeDetailPage() {
                     </span>
                   ) : null}
                 </span>
-                <span className={`text-right ${have >= line.amount ? 'text-ok' : 'text-warn'}`}>
+                <span
+                  className={`text-right ${
+                    always || have >= line.amount ? 'text-ok' : 'text-warn'
+                  }`}
+                >
                   {formatted.primary}
                   {formatted.stockHint ? (
                     <span className="text-ink-muted"> ({formatted.stockHint})</span>
                   ) : null}
                   <span className="block text-xs text-ink-muted">
-                    have {have}
-                    {ing ? ` ${ing.unit}` : ''}
+                    {always
+                      ? 'always available'
+                      : `have ${have}${ing ? ` ${ing.unit}` : ''}`}
                   </span>
                 </span>
               </li>
@@ -255,11 +278,7 @@ export function RecipeDetailPage() {
         </ul>
       </section>
 
-      <RecipeStoragePanel
-        storageDays={r.storageDays}
-        storageEnv={r.storageEnv}
-        storageInstructions={r.storageInstructions}
-      />
+      <ChefTipsPanel recipe={r} />
 
       <section className="mb-5">
         <h2 className="mb-2 text-lg">Steps</h2>
@@ -289,13 +308,27 @@ export function RecipeDetailPage() {
                           key={step.id}
                           className="rounded-lg border border-line bg-paper-elevated px-3 py-2 text-sm"
                         >
-                          <span className="text-ink-muted">{idx + 1}.</span> {step.description}
-                          {step.requiresTimer && step.timerDuration && step.timerUnit ? (
-                            <div className="mt-1 text-xs text-accent-deep">
-                              Timer{' '}
-                              {formatDuration(timerToSeconds(step.timerDuration, step.timerUnit))}
+                          <div className="flex gap-3">
+                            {step.imageDataUrl ? (
+                              <StepImageThumb
+                                src={step.imageDataUrl}
+                                className="h-16 w-16"
+                                onOpen={() => setGalleryStartId(step.id)}
+                              />
+                            ) : null}
+                            <div className="min-w-0 flex-1">
+                              <span className="text-ink-muted">{idx + 1}.</span>{' '}
+                              {step.description}
+                              {step.requiresTimer && step.timerDuration && step.timerUnit ? (
+                                <div className="mt-1 text-xs text-accent-deep">
+                                  Timer{' '}
+                                  {formatDuration(
+                                    timerToSeconds(step.timerDuration, step.timerUnit),
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
-                          ) : null}
+                          </div>
                         </li>
                       ))}
                     </ol>
@@ -307,7 +340,20 @@ export function RecipeDetailPage() {
         </div>
       </section>
 
-      <ChefTipsPanel recipe={r} className="mb-1" />
+      <RecipeStoragePanel
+        fridgeDays={r.fridgeDays}
+        freezerDays={r.freezerDays}
+        storageDays={r.storageDays}
+        storageEnv={r.storageEnv}
+        storageInstructions={r.storageInstructions}
+      />
     </Sheet>
+    <StepImageGallery
+      open={galleryStartId != null}
+      startId={galleryStartId}
+      items={stepGalleryItems}
+      onClose={() => setGalleryStartId(null)}
+    />
+    </>
   )
 }

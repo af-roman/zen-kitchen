@@ -21,6 +21,7 @@ import {
   servingItemNeedsFood,
 } from '@/domain/servings'
 import { useGoals } from '@/shared/hooks'
+import { appAlert } from '@/shared/dialog'
 import { MacroBar, MacroInline } from '@/shared/MacroBar'
 import { Badge, Button, EmptyState, PageHeader, WarnBanner } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
@@ -117,7 +118,7 @@ export function DayDetailPage() {
   async function startSession(sessionId: number) {
     const active = await db.cookingSessions.where('status').equals('active').first()
     if (active && active.id !== sessionId) {
-      alert('Finish or leave the current active session first.')
+      await appAlert('Finish or leave the current active session first.')
       navigate(`/cook/${active.id}`)
       return
     }

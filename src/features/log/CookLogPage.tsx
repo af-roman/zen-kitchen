@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { format, parseISO } from 'date-fns'
 import { db } from '@/db/database'
-import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
+import { Badge, Button, EmptyState, Field, PageHeader, AutoTextarea } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
 
@@ -74,12 +74,7 @@ export function CookLogPage() {
               </div>
             ))}
             <Field label="Notes (editable)">
-              <textarea
-                className={inputClass}
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
+              <AutoTextarea minRows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </Field>
             <Button
               className="w-full"

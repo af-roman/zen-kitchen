@@ -79,12 +79,6 @@ export function stageLabel(daysAhead: number): string {
   return `${daysAhead} days before`
 }
 
-/** Short form for badges / inline text. */
-export function stageShortLabel(daysAhead: number): string {
-  if (daysAhead <= 0) return 'Cook day'
-  return `−${daysAhead}d`
-}
-
 export function leadTimeLabel(daysAhead: number): string {
   if (daysAhead <= 0) return 'Same day'
   if (daysAhead === 1) return 'Starts 1 day ahead'

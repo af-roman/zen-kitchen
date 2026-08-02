@@ -2,6 +2,7 @@ import { db } from './database'
 import { removeSiblingLegsOf } from './sessionChains'
 import type { Recipe, Serving, ServingItem, SessionDishPlan } from '@/domain/types'
 import { isPrepRecipe } from '@/domain/kitchen'
+import { maxStorageDays } from '@/domain/storage'
 import {
   plannedDishAvailable,
   plannedDishExpiresAt,
@@ -162,7 +163,7 @@ export async function validateServePicks(
         continue
       }
       if (recipe) {
-        const expiresAt = plannedDishExpiresAt(session.date, recipe.storageDays)
+        const expiresAt = plannedDishExpiresAt(session.date, maxStorageDays(recipe))
         if (serveDate > expiresAt) {
           shortfalls.push(`${name}: would be past storage on ${serveDate}`)
           continue
@@ -224,11 +225,6 @@ export async function validateServePicks(
 export async function findServingsForMeal(date: string, meal: Serving['meal']) {
   const onDay = await db.servings.where('date').equals(date).toArray()
   return onDay.filter((s) => s.meal === meal)
-}
-
-export async function findServingForMeal(date: string, meal: Serving['meal']) {
-  const all = await findServingsForMeal(date, meal)
-  return all[0]
 }
 
 /** Revert allocations and delete every serving for this date + meal slot. */

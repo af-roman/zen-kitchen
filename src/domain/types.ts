@@ -33,23 +33,51 @@ export const INGREDIENT_CATEGORIES: { id: IngredientCategory; label: string }[] 
 ]
 
 export type DishCategory =
-  | 'rice'
+  | 'staple'
   | 'soup'
-  | 'simmered'
-  | 'grilled'
-  | 'stirfry'
-  | 'sides'
-  | 'bowl'
+  | 'main'
+  | 'side'
+  | 'sauce'
+  | 'dessert'
+  | 'snack'
   | 'other'
 
 export const DISH_CATEGORIES: { id: DishCategory; label: string }[] = [
-  { id: 'rice', label: 'Rice & grains' },
+  { id: 'staple', label: 'Staple' },
   { id: 'soup', label: 'Soup' },
-  { id: 'simmered', label: 'Simmered' },
-  { id: 'grilled', label: 'Grilled' },
-  { id: 'stirfry', label: 'Stir-fry' },
-  { id: 'sides', label: 'Pickles & sides' },
-  { id: 'bowl', label: 'Bowl' },
+  { id: 'main', label: 'Main' },
+  { id: 'side', label: 'Side' },
+  { id: 'sauce', label: 'Sauce / condiment' },
+  { id: 'dessert', label: 'Dessert' },
+  { id: 'snack', label: 'Snack' },
+  { id: 'other', label: 'Other' },
+]
+
+/** Primary cooking method for a recipe. */
+export type PreparationTechnique =
+  | 'raw'
+  | 'pickled'
+  | 'steamed'
+  | 'simmered'
+  | 'stir_fried'
+  | 'pan_fried'
+  | 'deep_fried'
+  | 'grilled'
+  | 'baked'
+  | 'assembled'
+  | 'other'
+
+export const PREPARATION_TECHNIQUES: { id: PreparationTechnique; label: string }[] = [
+  { id: 'raw', label: 'Raw / no-cook' },
+  { id: 'pickled', label: 'Pickled / cured' },
+  { id: 'steamed', label: 'Steamed' },
+  { id: 'simmered', label: 'Simmered / braised' },
+  { id: 'stir_fried', label: 'Stir-fried' },
+  { id: 'pan_fried', label: 'Pan-fried' },
+  { id: 'deep_fried', label: 'Deep-fried' },
+  { id: 'grilled', label: 'Grilled / broiled' },
+  { id: 'baked', label: 'Baked / roasted' },
+  { id: 'assembled', label: 'Assembled / mixed' },
   { id: 'other', label: 'Other' },
 ]
 
@@ -70,7 +98,11 @@ export const MEAL_SLOTS: { id: MealSlot; label: string }[] = [
   { id: 'snack', label: 'Snack' },
 ]
 
-export type StorageEnv = 'fridge' | 'freezer' | 'room'
+/** Where a cooked dish batch is stored. */
+export type BatchStorage = 'fridge' | 'freezer'
+
+/** @deprecated Prefer BatchStorage — 'room' only appears on legacy recipes. */
+export type StorageEnv = BatchStorage | 'room'
 
 export type TimeUnit = 'seconds' | 'minutes' | 'hours'
 
@@ -102,6 +134,11 @@ export interface Ingredient {
   gramsPerMl?: number
   nutritionPer100: Nutrition
   lowStockThreshold: number
+  /**
+   * Always on hand (e.g. tap water) — never requires pantry stock,
+   * never deducted, and never listed as low stock.
+   */
+  alwaysAvailable?: boolean
   createdAt: string
 }
 
@@ -133,6 +170,8 @@ export interface RecipeStep {
   requiresTimer: boolean
   timerDuration?: number
   timerUnit?: TimeUnit
+  /** Optional photo for this step (JPEG data URL or public path). */
+  imageDataUrl?: string
   /** Named subrecipe this step belongs to (required; e.g. "Rice", "Sauce", "Main") */
   group?: string
   /** 0 = cook day (default), 1 = day before, 2 = two days before */
@@ -158,16 +197,32 @@ export interface Recipe {
   /** Prep only: amount yielded at the recipe’s base scale (ingredient unit) */
   yieldAmount?: number
   category: DishCategory
+  /** Primary cooking method; older recipes may omit this (inferred from legacy category). */
+  technique?: PreparationTechnique
   effort: Effort
   /** Dish portions, or prep batch scale */
   portions: number
   imageDataUrl?: string
+  /** Optional YouTube video URL (opens in browser or the YouTube app). */
+  youtubeUrl?: string
   ingredients: RecipeIngredientLine[]
   steps: RecipeStep[]
   /** Optional free-text storage notes (container, reheating, freezing tips, etc.). */
   storageInstructions?: string
-  storageDays: number
-  storageEnv: StorageEnv
+  /** Days the dish keeps in the fridge; omit or 0 if fridge storage is not offered. */
+  fridgeDays?: number
+  /** Days the dish keeps in the freezer; omit or 0 if freezer storage is not offered. */
+  freezerDays?: number
+  /**
+   * @deprecated Prefer fridgeDays / freezerDays.
+   * Still read for older saved recipes.
+   */
+  storageDays?: number
+  /**
+   * @deprecated Prefer fridgeDays / freezerDays.
+   * Still read for older saved recipes.
+   */
+  storageEnv?: StorageEnv
   createdAt: string
   updatedAt: string
   seeded?: boolean
@@ -187,11 +242,16 @@ export interface SessionDishPlan {
   /** Shared uid linking every leg (stage) of one planned dish */
   chainId?: string
   notes?: string
-  /** Ingredient usage chosen during cook */
+  /** Fridge or freezer chosen when marking this dish cooked. */
+  storagePlace?: BatchStorage
+  /** Ingredient usage chosen during cook (amountUsed is always in stock unit). */
   usage?: {
     ingredientId: number
     pantryItemId: number
+    /** Amount in the ingredient’s stock unit (g / ml / pcs). */
     amountUsed: number
+    /** Display/entry unit while cooking; defaults to ingredient.unit. */
+    measureUnit?: MeasureUnit
   }[]
   nutritionPerPortion?: Nutrition
   stepsDone?: string[]
@@ -215,6 +275,8 @@ export interface ReadyBatch {
   sessionId?: number
   cookedAt: string
   expiresAt: string
+  /** Where this batch is stored; defaults to fridge for older batches. */
+  storagePlace?: BatchStorage
   portionsLeft: number
   portionsPlanned: number
   nutritionPerPortion: Nutrition

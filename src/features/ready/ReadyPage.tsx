@@ -2,13 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
-import { DISH_CATEGORIES } from '@/domain/types'
+import type { BatchStorage, Ingredient, ReadyBatch, Recipe } from '@/domain/types'
+import { dishCategoryLabel } from '@/domain/dishTaxonomy'
+import { appConfirm } from '@/shared/dialog'
 import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
-import { isDishRecipe, todayISO } from '@/domain/kitchen'
+import { isDishRecipe, storageLabel, todayISO } from '@/domain/kitchen'
 import { formatExpiryLabel, resolveServingNutrition } from '@/domain/servings'
+import { batchStoragePlace } from '@/domain/storage'
 import { assetUrl } from '@/shared/assetUrl'
+
+const STORAGE_SECTIONS: BatchStorage[] = ['fridge', 'freezer']
 
 export function ReadyPage() {
   const navigate = useNavigate()
@@ -21,17 +26,24 @@ export function ReadyPage() {
   const [adjustId, setAdjustId] = useState<number | null>(null)
   const batch = batches.find((b) => b.id === adjustId)
 
-  const grouped = useMemo(() => {
-    const map = new Map<number, typeof batches>()
+  const byPlace = useMemo(() => {
+    const sections: Record<BatchStorage, Map<number, ReadyBatch[]>> = {
+      fridge: new Map(),
+      freezer: new Map(),
+    }
     for (const b of batches) {
       const recipe = recipeById.get(b.recipeId)
       if (recipe && !isDishRecipe(recipe)) continue
+      const place = batchStoragePlace(b)
+      const map = sections[place]
       const list = map.get(b.recipeId) ?? []
       list.push(b)
       map.set(b.recipeId, list)
     }
-    return [...map.entries()]
+    return sections
   }, [batches, recipeById])
+
+  const hasAny = STORAGE_SECTIONS.some((place) => byPlace[place].size > 0)
 
   return (
     <div>
@@ -39,79 +51,52 @@ export function ReadyPage() {
         title="Ready to eat"
         subtitle="Cooked dish portions waiting to be served through the week. Prep stays in the pantry."
       />
-      {grouped.length === 0 ? (
+      {!hasAny ? (
         <EmptyState
           title="Nothing ready yet"
           body="Finish a cooking session to add batches here."
         />
       ) : (
-        <ul className="space-y-4">
-          {grouped.map(([recipeId, list]) => {
-            const recipe = recipeById.get(recipeId)
+        <div className="space-y-8">
+          {STORAGE_SECTIONS.map((place) => {
+            const grouped = [...byPlace[place].entries()]
             return (
-              <li key={recipeId}>
-                <h2 className="mb-2 font-display text-xl text-accent-deep">
-                  {recipe?.name ?? 'Dish'}
+              <section key={place}>
+                <h2 className="mb-3 font-display text-2xl text-accent-deep">
+                  {storageLabel(place)}
                 </h2>
-                <ul className="space-y-2">
-                  {list.map((b) => {
-                    const perPortion = resolveServingNutrition(
-                      {
-                        batchId: b.id,
-                        recipeId: b.recipeId,
-                        portions: 1,
-                        nutrition: b.nutritionPerPortion,
-                      },
-                      recipeById,
-                      ingById,
-                    )
-                    const expiryLabel = formatExpiryLabel(b.expiresAt)
-                    const expired = expiryLabel.includes('expired')
-
-                    return (
-                      <li key={b.id}>
-                        <button
-                          type="button"
-                          onClick={() => setAdjustId(b.id!)}
-                          className="flex w-full gap-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-3 text-left"
-                        >
-                          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
-                            {recipe?.imageDataUrl ? (
-                              <img
-                                src={assetUrl(recipe.imageDataUrl)}
-                                alt=""
-                                className="h-full w-full object-cover"
+                {grouped.length === 0 ? (
+                  <p className="text-sm text-ink-muted">
+                    Nothing in the {storageLabel(place).toLowerCase()}.
+                  </p>
+                ) : (
+                  <ul className="space-y-4">
+                    {grouped.map(([recipeId, list]) => {
+                      const recipe = recipeById.get(recipeId)
+                      return (
+                        <li key={`${place}-${recipeId}`}>
+                          <h3 className="mb-2 text-lg text-ink">{recipe?.name ?? 'Dish'}</h3>
+                          <ul className="space-y-2">
+                            {list.map((b) => (
+                              <BatchRow
+                                key={b.id}
+                                batch={b}
+                                recipe={recipe}
+                                recipeById={recipeById}
+                                ingById={ingById}
+                                onAdjust={() => b.id != null && setAdjustId(b.id)}
                               />
-                            ) : null}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap gap-1.5">
-                              <Badge>
-                                {DISH_CATEGORIES.find((c) => c.id === recipe?.category)?.label}
-                              </Badge>
-                              <Badge>Cooked {b.cookedAt}</Badge>
-                              <Badge tone={expired ? 'warn' : 'neutral'}>{expiryLabel}</Badge>
-                            </div>
-                            <div className="mt-2 text-sm">
-                              {b.portionsLeft} portions left
-                              {b.portionsPlanned > 0
-                                ? ` · ${b.portionsPlanned} planned`
-                                : ''}
-                            </div>
-                            <div className="mt-1">
-                              <MacroInline nutrition={perPortion} />
-                              <span className="text-xs text-ink-muted"> / portion</span>
-                            </div>
-                          </div>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </section>
             )
           })}
-        </ul>
+        </div>
       )}
 
       <AdjustSheet
@@ -125,6 +110,68 @@ export function ReadyPage() {
         }}
       />
     </div>
+  )
+}
+
+function BatchRow({
+  batch: b,
+  recipe,
+  recipeById,
+  ingById,
+  onAdjust,
+}: {
+  batch: ReadyBatch
+  recipe?: Recipe
+  recipeById: Map<number, Recipe>
+  ingById: Map<number, Ingredient>
+  onAdjust: () => void
+}) {
+  const perPortion = resolveServingNutrition(
+    {
+      batchId: b.id,
+      recipeId: b.recipeId,
+      portions: 1,
+      nutrition: b.nutritionPerPortion,
+    },
+    recipeById,
+    ingById,
+  )
+  const expiryLabel = formatExpiryLabel(b.expiresAt)
+  const expired = expiryLabel.includes('expired')
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onAdjust}
+        className="flex w-full gap-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-3 text-left"
+      >
+        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
+          {recipe?.imageDataUrl ? (
+            <img
+              src={assetUrl(recipe.imageDataUrl)}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : null}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap gap-1.5">
+            <Badge>{dishCategoryLabel(recipe?.category)}</Badge>
+            <Badge>Cooked {b.cookedAt}</Badge>
+            <Badge tone={expired ? 'warn' : 'neutral'}>{expiryLabel}</Badge>
+          </div>
+          <div className="mt-2 text-sm">
+            {b.portionsLeft} portions left
+            {b.portionsPlanned > 0 ? ` · ${b.portionsPlanned} planned` : ''}
+          </div>
+          <div className="mt-1">
+            <MacroInline nutrition={perPortion} />
+            <span className="text-xs text-ink-muted"> / portion</span>
+          </div>
+        </div>
+      </button>
+    </li>
   )
 }
 
@@ -182,9 +229,9 @@ function AdjustSheet({
         })
       } else {
         if (
-          !confirm(
+          !(await appConfirm(
             `Log ${removed} portion${removed === 1 ? '' : 's'} as a Snack on ${consumeDate}? This adds to the plan.`,
-          )
+          ))
         ) {
           return
         }

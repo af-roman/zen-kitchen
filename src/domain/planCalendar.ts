@@ -19,10 +19,6 @@ export function weekStartOf(date: string): string {
   return format(startOfWeek(parseISO(date), { weekStartsOn: 1 }), 'yyyy-MM-dd')
 }
 
-export function monthStartOf(date: string): string {
-  return format(startOfMonth(parseISO(date)), 'yyyy-MM-dd')
-}
-
 /** Monday–Sunday for the week containing `anchor`. */
 export function daysInWeek(anchor: string): string[] {
   const start = parseISO(weekStartOf(anchor))

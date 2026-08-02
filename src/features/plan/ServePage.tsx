@@ -31,6 +31,7 @@ import {
 import { recipeNutrition } from '@/domain/recipeMath'
 import { isPrepLeg } from '@/domain/stages'
 import { isPrepRecipe, todayISO, uid } from '@/domain/kitchen'
+import { maxStorageDays } from '@/domain/storage'
 import {
   applyServingItemAllocations,
   clearServingsForMeal,
@@ -41,7 +42,8 @@ import {
 import { useGoals } from '@/shared/hooks'
 import { MacroBar, MacroInline } from '@/shared/MacroBar'
 import { Sheet } from '@/shared/Sheet'
-import { Badge, Button, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
+import { appAlert, appConfirm } from '@/shared/dialog'
+import { Badge, Button, Field, PageHeader, RemoveButton, WarnBanner, inputClass } from '@/shared/ui'
 
 type AdhocUsageLine = NonNullable<ServingItem['usage']>[number]
 
@@ -128,7 +130,7 @@ export function ServePage() {
         if (isPrepLeg(dish)) continue
         const recipe = recipeById.get(dish.recipeId)
         if (!recipe || isPrepRecipe(recipe)) continue
-        const expiresAt = plannedDishExpiresAt(session.date, recipe.storageDays)
+        const expiresAt = plannedDishExpiresAt(session.date, maxStorageDays(recipe))
         if (expiresAt < date) continue
         const left = plannedDishAvailable(dish.portions, dish.portionsPlanned ?? 0)
         if (left <= 0) continue
@@ -247,11 +249,11 @@ export function ServePage() {
 
   async function save() {
     if (isPastDate(date)) {
-      alert('You cannot serve meals to a day in the past.')
+      await appAlert('You cannot serve meals to a day in the past.', { title: 'Cannot save' })
       return
     }
     if (picks.length === 0) {
-      alert('Select at least one dish.')
+      await appAlert('Select at least one dish.', { title: 'Cannot save' })
       return
     }
 
@@ -259,9 +261,9 @@ export function ServePage() {
     if (existingMeals.length > 0) {
       const mealLabel = MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal
       if (
-        !confirm(
+        !(await appConfirm(
           `${mealLabel} is already planned for ${date}. Replace it with this meal?`,
-        )
+        ))
       ) {
         return
       }
@@ -276,7 +278,7 @@ export function ServePage() {
       creditFromReplace,
     )
     if (shortfalls.length > 0) {
-      alert(`Can't save this meal:\n\n${shortfalls.join('\n')}`)
+      await appAlert(`Can't save this meal:\n\n${shortfalls.join('\n')}`, { title: 'Cannot save' })
       return
     }
 
@@ -707,13 +709,10 @@ export function ServePage() {
                     >
                       Edit
                     </Button>
-                    <Button
-                      variant="ghost"
+                    <RemoveButton
                       className="!py-1 !text-xs"
                       onClick={() => setPick({ ...pick, portions: 0 })}
-                    >
-                      Remove
-                    </Button>
+                    />
                   </div>
                 </li>
               ))}
@@ -1086,13 +1085,11 @@ function AdhocFoodSheet({
                           }}
                         />
                       </Field>
-                      <Button
-                        variant="ghost"
+                      <RemoveButton
                         className="!py-1 !text-xs"
+                        label="Remove line"
                         onClick={() => setUsage(usage.filter((_, i) => i !== idx))}
-                      >
-                        Remove line
-                      </Button>
+                      />
                     </div>
                   )
                 })
@@ -1116,13 +1113,13 @@ function AdhocFoodSheet({
 
         <Button
           className="w-full"
-          onClick={() => {
+          onClick={async () => {
             if (!name.trim()) {
-              alert('Give this food a name.')
+              await appAlert('Give this food a name.', { title: 'Cannot save' })
               return
             }
             if (portions <= 0) {
-              alert('Portions must be greater than zero.')
+              await appAlert('Portions must be greater than zero.', { title: 'Cannot save' })
               return
             }
             const cleanUsage = usage.filter((u) => u.pantryItemId > 0 && u.amountUsed > 0)

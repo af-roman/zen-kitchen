@@ -10,10 +10,11 @@ import {
 } from 'date-fns'
 import { db } from '@/db/database'
 import type { Restock, RestockLine, ShoppingListItem } from '@/domain/types'
-import { isLowStock, todayISO, uid } from '@/domain/kitchen'
+import { isAlwaysAvailable, isLowStock, todayISO, uid } from '@/domain/kitchen'
 import { stockTotals } from '@/domain/recipeMath'
 import { ImageUploadField } from '@/shared/ImageUploadField'
-import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
+import { appAlert, appConfirm } from '@/shared/dialog'
+import { Badge, Button, EmptyState, Field, PageHeader, RemoveButton, WarnBanner, inputClass, AutoTextarea } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
 type RestockPrefill = {
@@ -37,6 +38,7 @@ export function ShoppingPage() {
 
   const lowItems = useMemo(() => {
     return ingredients.filter((ing) => {
+      if (isAlwaysAvailable(ing)) return false
       const have = stock.get(ing.id!) ?? 0
       return have === 0 || isLowStock(have, ing.lowStockThreshold)
     })
@@ -172,7 +174,7 @@ export function ShoppingPage() {
 
   async function clearList() {
     if (!shoppingList?.id || listItems.length === 0) return
-    if (!confirm('Clear the shopping list?')) return
+    if (!(await appConfirm('Clear the shopping list?', { danger: true, confirmLabel: 'Clear' }))) return
     await db.shoppingLists.update(shoppingList.id, {
       items: [],
       updatedAt: new Date().toISOString(),
@@ -196,11 +198,11 @@ export function ShoppingPage() {
 
   async function markPurchased() {
     if (!shoppingList?.id || listItems.length === 0) {
-      alert('Add items to the shopping list first.')
+      await appAlert('Add items to the shopping list first.')
       return
     }
     if (selectedItems.length === 0) {
-      alert('Select the items you purchased first.')
+      await appAlert('Select the items you purchased first.')
       return
     }
     const storeNote =
@@ -246,7 +248,7 @@ export function ShoppingPage() {
     const listId = await ensureOpenList()
     const list = (await db.shoppingLists.get(listId))!
     if (list.items.some((i) => i.ingredientId === ingredientId)) {
-      alert('Already on the shopping list.')
+      await appAlert('Already on the shopping list.')
       return
     }
     const next: ShoppingListItem = {
@@ -654,9 +656,9 @@ function ShoppingListItemSheet({
         </Field>
         <Button
           className="w-full"
-          onClick={() => {
+          onClick={async () => {
             if (!ingredientId) {
-              alert('Pick an ingredient.')
+              await appAlert('Pick an ingredient.')
               return
             }
             onSave({
@@ -673,9 +675,7 @@ function ShoppingListItemSheet({
           {editing ? 'Save item' : 'Add to list'}
         </Button>
         {onDelete ? (
-          <Button variant="danger" className="w-full" onClick={onDelete}>
-            Remove from list
-          </Button>
+          <RemoveButton className="w-full" label="Remove from list" onClick={onDelete} />
         ) : null}
       </div>
     </Sheet>
@@ -738,7 +738,7 @@ function RestockSheet({
 
   async function save() {
     if (lines.length === 0) {
-      alert('Add at least one line.')
+      await appAlert('Add at least one line.', { title: 'Cannot save' })
       return
     }
     const totalCost = lines.reduce((s, l) => s + l.cost, 0)
@@ -829,9 +829,10 @@ function RestockSheet({
   async function remove() {
     if (!editing?.id) return
     if (
-      !confirm(
+      !(await appConfirm(
         'Delete this restock record? Pantry items created from it will not be removed.',
-      )
+        { danger: true, confirmLabel: 'Delete' },
+      ))
     ) {
       return
     }
@@ -947,19 +948,12 @@ function RestockSheet({
                   }}
                 />
               </div>
-              <Button variant="ghost" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>
-                Remove
-              </Button>
+              <RemoveButton onClick={() => setLines(lines.filter((_, i) => i !== idx))} />
             </div>
           )
         })}
         <Field label="Notes">
-          <textarea
-            className={inputClass}
-            rows={2}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+          <AutoTextarea minRows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
         <Button className="w-full" onClick={() => void save()}>
           {editing ? 'Save changes' : 'Save restock'}

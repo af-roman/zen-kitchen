@@ -1,16 +1,8 @@
-import type { Ingredient, MeasureUnit, Unit } from './types'
+import type { Ingredient, MeasureUnit } from './types'
 
 /** Metric cooking: 1 tsp = 5 ml, 1 tbsp = 15 ml */
 export const ML_PER_TSP = 5
 export const ML_PER_TBSP = 15
-
-export const MEASURE_UNITS: { id: MeasureUnit; label: string }[] = [
-  { id: 'g', label: 'g' },
-  { id: 'ml', label: 'ml' },
-  { id: 'pcs', label: 'pcs' },
-  { id: 'tsp', label: 'tsp' },
-  { id: 'tbsp', label: 'tbsp' },
-]
 
 export function measureUnitOf(
   line: { measureUnit?: MeasureUnit } | null | undefined,
@@ -102,7 +94,7 @@ export function fromStockAmount(
   return round1(stockAmount)
 }
 
-/** Human-readable measure + optional stock equivalent. */
+/** Human-readable measure + optional stock equivalent (not shown for spoons). */
 export function formatRecipeAmount(
   stockAmount: number,
   measureUnit: MeasureUnit,
@@ -111,7 +103,7 @@ export function formatRecipeAmount(
   const unit = canUseMeasureUnit(ingredient, measureUnit) ? measureUnit : ingredient.unit
   const shown = fromStockAmount(stockAmount, unit, ingredient)
   const primary = `${shown} ${unit}`
-  if (unit === ingredient.unit) return { primary }
+  if (unit === ingredient.unit || isSpoonUnit(unit)) return { primary }
   return {
     primary,
     stockHint: `${round1(stockAmount)} ${ingredient.unit}`,
@@ -127,9 +119,4 @@ export function gramsPerMlFromTbsp(gramsPerTbsp: number): number | undefined {
 export function gramsPerTbspFromMl(gramsPerMl: number | undefined): number {
   if (gramsPerMl == null || gramsPerMl <= 0) return 0
   return round1(gramsPerMl * ML_PER_TBSP)
-}
-
-export function stockUnitLabel(unit: Unit): string {
-  if (unit === 'pcs') return 'pcs'
-  return unit
 }

@@ -1,5 +1,7 @@
 import { db } from './database'
+import { TAP_WATER, isTapWaterName } from './builtInIngredients'
 import { dedupeSeedDatabase } from './seed-dedupe'
+import { ensureSeedCatalog } from './seed-catalog/load'
 import type { Meta } from '@/domain/types'
 
 const SCHEMA_VERSION = 1
@@ -78,13 +80,33 @@ async function ensureCatalogReset(): Promise<void> {
   })
 }
 
+/** Ensure tap water exists and stays always-available with ml + zero kcal. */
+export async function ensureBuiltInIngredients(): Promise<void> {
+  const all = await db.ingredients.toArray()
+  const existing =
+    all.find((i) => i.alwaysAvailable) ?? all.find((i) => isTapWaterName(i.name))
+  const now = new Date().toISOString()
+  if (existing?.id != null) {
+    await db.ingredients.put({
+      id: existing.id,
+      ...TAP_WATER,
+      category: existing.category || TAP_WATER.category,
+      createdAt: existing.createdAt,
+    })
+    return
+  }
+  await db.ingredients.add({ ...TAP_WATER, createdAt: now })
+}
+
 /**
- * Lightweight boot: goals defaults, one-shot catalog reset, optional name dedupe.
- * Does not insert recipes or ingredients from seed files.
+ * Boot: goals defaults, one-shot catalog reset, built-in ingredients,
+ * starter recipe catalog when the kitchen has no recipes yet, name dedupe.
  */
 export async function ensureSeeded(): Promise<void> {
   await ensureGoals()
   await ensureCatalogReset()
+  await ensureBuiltInIngredients()
+  await ensureSeedCatalog()
   await dedupeSeedDatabase()
   await writeMeta({ schemaVersion: SCHEMA_VERSION })
 }

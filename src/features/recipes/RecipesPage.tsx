@@ -5,17 +5,20 @@ import { db } from '@/db/database'
 import {
   DISH_CATEGORIES,
   EFFORT_LEVELS,
+  PREPARATION_TECHNIQUES,
   type DishCategory,
   type Effort,
+  type PreparationTechnique,
   type Recipe,
   type RecipeKind,
 } from '@/domain/types'
+import { dishCategoryLabel, recipeCategory, recipeTechnique, techniqueLabel } from '@/domain/dishTaxonomy'
 import { isPrepRecipe, recipeKindOf, recipePortionsAvailable } from '@/domain/kitchen'
 import { recipeNutrition, stockTotals } from '@/domain/recipeMath'
 import { useGoals } from '@/shared/hooks'
 import { assetUrl } from '@/shared/assetUrl'
 import { MacroInline } from '@/shared/MacroBar'
-import { Badge, Button, EmptyState, PageHeader, inputClass } from '@/shared/ui'
+import { Badge, Button, EmptyState, PageHeader, SegmentedControl, inputClass } from '@/shared/ui'
 
 type SortKey = 'name' | 'effort' | 'newest'
 type KindFilter = 'all' | RecipeKind
@@ -26,6 +29,7 @@ type SavedFilters = {
   q: string
   kind: KindFilter
   category: DishCategory | 'all'
+  technique: PreparationTechnique | 'all'
   effort: Effort | 'all'
   cookableOnly: boolean
   sort: SortKey
@@ -36,7 +40,17 @@ function loadFilters(): Partial<SavedFilters> {
   try {
     const raw = sessionStorage.getItem(FILTERS_KEY)
     if (!raw) return {}
-    return JSON.parse(raw) as SavedFilters
+    const parsed = JSON.parse(raw) as SavedFilters
+    const category =
+      parsed.category === 'all' || DISH_CATEGORIES.some((c) => c.id === parsed.category)
+        ? parsed.category
+        : 'all'
+    const technique =
+      parsed.technique === 'all' ||
+      PREPARATION_TECHNIQUES.some((t) => t.id === parsed.technique)
+        ? parsed.technique
+        : 'all'
+    return { ...parsed, category, technique }
   } catch {
     return {}
   }
@@ -55,24 +69,41 @@ export function RecipesPage() {
   const [q, setQ] = useState(saved.q ?? '')
   const [kind, setKind] = useState<KindFilter>(saved.kind ?? 'all')
   const [category, setCategory] = useState<DishCategory | 'all'>(saved.category ?? 'all')
+  const [technique, setTechnique] = useState<PreparationTechnique | 'all'>(
+    saved.technique ?? 'all',
+  )
   const [effort, setEffort] = useState<Effort | 'all'>(saved.effort ?? 'all')
   const [cookableOnly, setCookableOnly] = useState(saved.cookableOnly ?? false)
   const [sort, setSort] = useState<SortKey>(saved.sort ?? 'name')
   const [compact, setCompact] = useState(saved.compact ?? false)
 
   useEffect(() => {
-    const next: SavedFilters = { q, kind, category, effort, cookableOnly, sort, compact }
+    const next: SavedFilters = {
+      q,
+      kind,
+      category,
+      technique,
+      effort,
+      cookableOnly,
+      sort,
+      compact,
+    }
     sessionStorage.setItem(FILTERS_KEY, JSON.stringify(next))
-  }, [q, kind, category, effort, cookableOnly, sort, compact])
+  }, [q, kind, category, technique, effort, cookableOnly, sort, compact])
 
   const filtered = useMemo(() => {
     let list = [...recipes]
+    const qLower = q.trim().toLowerCase()
     list = list.filter((r) => {
       if (kind !== 'all' && recipeKindOf(r) !== kind) return false
-      if (category !== 'all' && r.category !== category) return false
+      if (category !== 'all' && recipeCategory(r) !== category) return false
+      if (technique !== 'all' && recipeTechnique(r) !== technique) return false
       if (effort !== 'all' && r.effort !== effort) return false
-      if (q && !r.name.toLowerCase().includes(q.toLowerCase())) return false
-      const avail = recipePortionsAvailable(r, stock)
+      if (qLower) {
+        const hay = `${r.name} ${dishCategoryLabel(r.category)} ${techniqueLabel(recipeTechnique(r))}`.toLowerCase()
+        if (!hay.includes(qLower)) return false
+      }
+      const avail = recipePortionsAvailable(r, stock, ingById)
       if (cookableOnly && !avail.cookable) return false
       return true
     })
@@ -83,7 +114,7 @@ export function RecipesPage() {
       return a.name.localeCompare(b.name)
     })
     return list
-  }, [recipes, q, kind, category, effort, cookableOnly, sort, stock])
+  }, [recipes, q, kind, category, technique, effort, cookableOnly, sort, stock, ingById])
 
   return (
     <div>
@@ -96,29 +127,42 @@ export function RecipesPage() {
       />
       <div className="mb-4 grid gap-2 sm:grid-cols-2">
         <input
-          className={inputClass}
+          className={`${inputClass} sm:col-span-2`}
           placeholder="Search recipes…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          className={inputClass}
+        <SegmentedControl
+          className="sm:col-span-2"
           value={kind}
-          onChange={(e) => setKind(e.target.value as KindFilter)}
-        >
-          <option value="all">All kinds</option>
-          <option value="dish">Dishes</option>
-          <option value="prep">Prep (pantry)</option>
-        </select>
+          onChange={setKind}
+          options={[
+            { id: 'all', label: 'All' },
+            { id: 'dish', label: 'Dishes' },
+            { id: 'prep', label: 'Prep' },
+          ]}
+        />
         <select
           className={inputClass}
           value={category}
           onChange={(e) => setCategory(e.target.value as DishCategory | 'all')}
         >
-          <option value="all">All dish types</option>
+          <option value="all">All categories</option>
           {DISH_CATEGORIES.map((c) => (
             <option key={c.id} value={c.id}>
               {c.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className={inputClass}
+          value={technique}
+          onChange={(e) => setTechnique(e.target.value as PreparationTechnique | 'all')}
+        >
+          <option value="all">Any technique</option>
+          {PREPARATION_TECHNIQUES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
             </option>
           ))}
         </select>
@@ -165,6 +209,7 @@ export function RecipesPage() {
               recipe={recipe}
               compact={compact}
               stock={stock}
+              ingredientById={ingById}
               nutrition={recipeNutrition(recipe, ingById)}
               goalsKcal={goals.dailyKcal}
               yieldName={
@@ -186,18 +231,21 @@ function RecipeRow({
   recipe,
   compact,
   stock,
+  ingredientById,
   nutrition,
   yieldName,
 }: {
   recipe: Recipe
   compact: boolean
   stock: Map<number, number>
+  ingredientById: Map<number, { alwaysAvailable?: boolean }>
   nutrition: ReturnType<typeof recipeNutrition>
   goalsKcal: number
   yieldName?: string
 }) {
-  const avail = recipePortionsAvailable(recipe, stock)
-  const cat = DISH_CATEGORIES.find((c) => c.id === recipe.category)?.label
+  const avail = recipePortionsAvailable(recipe, stock, ingredientById)
+  const cat = dishCategoryLabel(recipe.category)
+  const tech = techniqueLabel(recipeTechnique(recipe))
   const effort = EFFORT_LEVELS.find((e) => e.id === recipe.effort)?.label
   const prep = isPrepRecipe(recipe)
 
@@ -240,6 +288,7 @@ function RecipeRow({
           <div className="mt-1 flex flex-wrap gap-1.5">
             {prep ? <Badge tone="accent">Prep</Badge> : null}
             <Badge>{cat}</Badge>
+            <Badge>{tech}</Badge>
             <Badge tone="accent">{effort}</Badge>
             <Badge tone={avail.cookable ? 'ok' : 'neutral'}>
               {avail.available}/{avail.needed} ingredients

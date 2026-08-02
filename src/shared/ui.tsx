@@ -1,29 +1,5 @@
-import type { ReactNode } from 'react'
-
-export function Card({
-  children,
-  className = '',
-  onClick,
-}: {
-  children: ReactNode
-  className?: string
-  onClick?: () => void
-}) {
-  const base =
-    'rounded-[var(--radius-card)] border border-line bg-paper-elevated/90 shadow-[0_1px_0_rgba(42,46,43,0.04)]'
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className={`${base} w-full text-left transition hover:border-accent/40 ${className}`}
-      >
-        {children}
-      </button>
-    )
-  }
-  return <div className={`${base} ${className}`}>{children}</div>
-}
+import type { ReactNode, TextareaHTMLAttributes } from 'react'
+import { useEffect, useRef } from 'react'
 
 export function PageHeader({
   title,
@@ -78,6 +54,57 @@ export function Button({
   )
 }
 
+/**
+ * Consistent remove control.
+ * - `icon`: trailing control on a list row (stretch with `h-full` next to inputs).
+ * - text (default): labeled control at the foot of a card/section.
+ */
+export function RemoveButton({
+  onClick,
+  label = 'Remove',
+  icon = false,
+  disabled,
+  className = '',
+}: {
+  onClick?: () => void
+  label?: string
+  icon?: boolean
+  disabled?: boolean
+  className?: string
+}) {
+  if (icon) {
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        title={label}
+        disabled={disabled}
+        onClick={onClick}
+        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-ink-muted transition hover:bg-danger/10 hover:text-danger disabled:opacity-40 ${className}`}
+      >
+        <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden>
+          <path
+            d="M5 5l10 10M15 5L5 15"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+    )
+  }
+  return (
+    <Button
+      variant="ghost"
+      disabled={disabled}
+      onClick={onClick}
+      className={`text-danger hover:bg-danger/10 hover:text-danger ${className}`}
+    >
+      {label}
+    </Button>
+  )
+}
+
 export function Field({
   label,
   children,
@@ -98,6 +125,46 @@ export function Field({
 
 export const inputClass =
   'w-full rounded-lg border border-line bg-paper-elevated px-3 py-2 text-base text-ink outline-none transition focus:border-accent'
+
+/** Textarea that grows with its content. */
+export function AutoTextarea({
+  className = '',
+  value,
+  onChange,
+  minRows = 2,
+  ...rest
+}: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'rows'> & {
+  minRows?: number
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  function resize() {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    const line = 24
+    const min = minRows * line + 16
+    el.style.height = `${Math.max(min, el.scrollHeight)}px`
+  }
+
+  useEffect(() => {
+    resize()
+  }, [value, minRows])
+
+  return (
+    <textarea
+      {...rest}
+      ref={ref}
+      rows={minRows}
+      value={value}
+      onChange={(e) => {
+        onChange?.(e)
+        requestAnimationFrame(resize)
+      }}
+      className={`${inputClass} resize-none overflow-hidden ${className}`}
+    />
+  )
+}
 
 export function Badge({
   children,
@@ -132,6 +199,44 @@ export function WarnBanner({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-sm text-warn">
       {children}
+    </div>
+  )
+}
+
+/** Segmented filter control (e.g. All / Dishes / Prep). */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  className = '',
+}: {
+  value: T
+  options: { id: T; label: string }[]
+  onChange: (value: T) => void
+  className?: string
+}) {
+  return (
+    <div
+      className={`flex rounded-lg border border-line bg-paper-elevated p-0.5 ${className}`}
+      role="group"
+    >
+      {options.map((opt) => {
+        const active = opt.id === value
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
+              active
+                ? 'bg-accent-deep text-paper-elevated shadow-sm'
+                : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

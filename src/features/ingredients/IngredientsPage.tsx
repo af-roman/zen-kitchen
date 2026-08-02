@@ -9,6 +9,8 @@ import {
   type Unit,
 } from '@/domain/types'
 import { gramsPerMlFromTbsp, gramsPerTbspFromMl } from '@/domain/measures'
+import { isAlwaysAvailable } from '@/domain/kitchen'
+import { appAlert, appConfirm } from '@/shared/dialog'
 import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -71,7 +73,7 @@ export function IngredientsPage() {
       carbsG: form.carbsG,
       proteinG: form.proteinG,
     }
-    const payload: Omit<Ingredient, 'id'> = {
+    let payload: Omit<Ingredient, 'id'> = {
       name: form.name.trim(),
       category: form.category,
       unit: form.unit,
@@ -81,6 +83,19 @@ export function IngredientsPage() {
       nutritionPer100: nutrition,
       lowStockThreshold: form.lowStockThreshold,
       createdAt: editing?.createdAt ?? new Date().toISOString(),
+      alwaysAvailable: editing?.alwaysAvailable,
+    }
+    if (editing?.alwaysAvailable) {
+      payload = {
+        ...payload,
+        name: editing.name,
+        unit: 'ml',
+        alwaysAvailable: true,
+        nutritionPer100: { energyKcal: 0, fatG: 0, carbsG: 0, proteinG: 0 },
+        gramsPerMl: undefined,
+        avgPieceGrams: undefined,
+        lowStockThreshold: 0,
+      }
     }
     if (editing?.id) {
       await db.ingredients.update(editing.id, payload)
@@ -91,7 +106,12 @@ export function IngredientsPage() {
   }
 
   async function remove(id: number) {
-    if (!confirm('Delete this ingredient? Pantry items that use it will remain orphaned.')) return
+    const ing = ingredients.find((i) => i.id === id)
+    if (isAlwaysAvailable(ing)) {
+      await appAlert('Tap water is built-in and cannot be deleted.')
+      return
+    }
+    if (!(await appConfirm('Delete this ingredient? Pantry items that use it will remain orphaned.', { danger: true, confirmLabel: 'Delete' }))) return
     await db.ingredients.delete(id)
   }
 
@@ -138,6 +158,7 @@ export function IngredientsPage() {
                     {INGREDIENT_CATEGORIES.find((c) => c.id === ing.category)?.label}
                   </Badge>
                   <Badge tone="accent">{ing.unit}</Badge>
+                  {isAlwaysAvailable(ing) ? <Badge tone="ok">Always available</Badge> : null}
                   {ing.unit === 'g' && ing.gramsPerMl != null ? (
                     <Badge>spoons ok</Badge>
                   ) : null}
@@ -147,9 +168,11 @@ export function IngredientsPage() {
                   </span>
                 </div>
               </button>
-              <Button variant="ghost" onClick={() => void remove(ing.id!)}>
-                Delete
-              </Button>
+              {isAlwaysAvailable(ing) ? null : (
+                <Button variant="ghost" onClick={() => void remove(ing.id!)}>
+                  Delete
+                </Button>
+              )}
             </li>
           ))}
         </ul>
@@ -161,10 +184,17 @@ export function IngredientsPage() {
         onClose={() => setCreating(false)}
       >
         <div className="space-y-3">
+          {editing?.alwaysAvailable ? (
+            <p className="rounded-lg border border-ok/30 bg-ok/10 px-3 py-2 text-sm text-ok">
+              Built-in tap water: always available, measured in ml (or tsp/tbsp), zero calories.
+              Only the category can be changed.
+            </p>
+          ) : null}
           <Field label="Name">
             <input
               className={inputClass}
               value={form.name}
+              disabled={Boolean(editing?.alwaysAvailable)}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </Field>
@@ -187,6 +217,7 @@ export function IngredientsPage() {
             <select
               className={inputClass}
               value={form.unit}
+              disabled={Boolean(editing?.alwaysAvailable)}
               onChange={(e) => setForm({ ...form, unit: e.target.value as Unit })}
             >
               <option value="g">grams (g)</option>
@@ -194,7 +225,7 @@ export function IngredientsPage() {
               <option value="pcs">pieces (pcs)</option>
             </select>
           </Field>
-          {form.unit === 'pcs' ? (
+          {form.unit === 'pcs' && !editing?.alwaysAvailable ? (
             <Field label="Average weight per piece (g)">
               <input
                 className={inputClass}
@@ -204,7 +235,7 @@ export function IngredientsPage() {
               />
             </Field>
           ) : null}
-          {form.unit === 'g' ? (
+          {form.unit === 'g' && !editing?.alwaysAvailable ? (
             <Field
               label="Grams per tablespoon (optional)"
               hint="Lets recipes use tsp/tbsp for this solid. Stock stays in grams."
@@ -220,37 +251,44 @@ export function IngredientsPage() {
               />
             </Field>
           ) : null}
-          <p className="text-xs text-ink-muted">
-            Nutrition per 100{form.unit === 'ml' ? 'ml' : 'g'}
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {(
-              [
-                ['energyKcal', 'Energy (kcal)'],
-                ['fatG', 'Fat (g)'],
-                ['carbsG', 'Carbs (g)'],
-                ['proteinG', 'Protein (g)'],
-              ] as const
-            ).map(([key, label]) => (
-              <Field key={key} label={label}>
+          {!editing?.alwaysAvailable ? (
+            <>
+              <p className="text-xs text-ink-muted">
+                Nutrition per 100{form.unit === 'ml' ? 'ml' : 'g'}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    ['energyKcal', 'Energy (kcal)'],
+                    ['fatG', 'Fat (g)'],
+                    ['carbsG', 'Carbs (g)'],
+                    ['proteinG', 'Protein (g)'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <Field key={key} label={label}>
+                    <input
+                      className={inputClass}
+                      type="number"
+                      step="0.1"
+                      value={form[key]}
+                      onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })}
+                    />
+                  </Field>
+                ))}
+              </div>
+              <Field
+                label="Low-stock threshold"
+                hint="Warn when total pantry amount falls to this or below."
+              >
                 <input
                   className={inputClass}
                   type="number"
-                  step="0.1"
-                  value={form[key]}
-                  onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })}
+                  value={form.lowStockThreshold}
+                  onChange={(e) => setForm({ ...form, lowStockThreshold: Number(e.target.value) })}
                 />
               </Field>
-            ))}
-          </div>
-          <Field label="Low-stock threshold" hint="Warn when total pantry amount falls to this or below.">
-            <input
-              className={inputClass}
-              type="number"
-              value={form.lowStockThreshold}
-              onChange={(e) => setForm({ ...form, lowStockThreshold: Number(e.target.value) })}
-            />
-          </Field>
+            </>
+          ) : null}
           <Button className="w-full" onClick={() => void save()} disabled={!form.name.trim()}>
             Save ingredient
           </Button>

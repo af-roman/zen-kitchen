@@ -12,6 +12,7 @@ import {
 import { isLowStock, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
 import { ImageUploadField } from '@/shared/ImageUploadField'
+import { appConfirm } from '@/shared/dialog'
 import { assetUrl } from '@/shared/assetUrl'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
@@ -258,7 +259,7 @@ function PantryItemSheet({
 
   async function remove() {
     if (!editing?.id) return
-    if (!confirm('Remove this pantry item?')) return
+    if (!(await appConfirm('Remove this pantry item?', { danger: true, confirmLabel: 'Remove' }))) return
     await db.pantryItems.delete(editing.id)
     onClose()
   }

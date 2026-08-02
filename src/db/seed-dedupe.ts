@@ -230,34 +230,3 @@ export async function dedupeSeedDatabase(): Promise<void> {
   await dedupeRecipes()
   await dedupeStarterPantry()
 }
-
-/** One-time renames so prep recipes do not share ingredient names. */
-export async function migrateLegacySeedNames(): Promise<void> {
-  const renames: { from: string; to: string }[] = [
-    { from: 'All-purpose miso sauce', to: 'Homemade all-purpose miso sauce' },
-  ]
-
-  for (const { from, to } of renames) {
-    const fromKey = from.toLowerCase()
-    const toKey = to.toLowerCase()
-    const candidates = await db.recipes.toArray()
-    const oldRow = candidates.find(
-      (r) =>
-        r.name.toLowerCase() === fromKey &&
-        r.seeded &&
-        (r.recipeKind === 'prep' || r.yieldIngredientId != null),
-    )
-    if (!oldRow?.id) continue
-
-    const newRow = candidates.find((r) => r.name.toLowerCase() === toKey)
-    if (newRow?.id && newRow.id !== oldRow.id) {
-      await remapRecipeId(oldRow.id, newRow.id)
-      await db.recipes.delete(oldRow.id)
-    } else {
-      await db.recipes.update(oldRow.id, {
-        name: to,
-        updatedAt: new Date().toISOString(),
-      })
-    }
-  }
-}

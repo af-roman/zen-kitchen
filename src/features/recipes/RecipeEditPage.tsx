@@ -6,9 +6,11 @@ import {
   DISH_CATEGORIES,
   EFFORT_LEVELS,
   INGREDIENT_CATEGORIES,
+  PREPARATION_TECHNIQUES,
   type DishCategory,
   type Effort,
   type MeasureUnit,
+  type PreparationTechnique,
   type Recipe,
   type RecipeIngredientLine,
   type RecipeKind,
@@ -16,10 +18,13 @@ import {
   type TimeUnit,
 } from '@/domain/types'
 import { recipeKindOf, uid } from '@/domain/kitchen'
+import { recipeCategory, recipeTechnique } from '@/domain/dishTaxonomy'
+import { readRecipeStorageDays, recipeStorageFields, recipeStorageOptions } from '@/domain/storage'
 import {
   allowedMeasureUnits,
   canUseMeasureUnit,
   fromStockAmount,
+  isSpoonUnit,
   measureUnitOf,
   toStockAmount,
 } from '@/domain/measures'
@@ -35,8 +40,10 @@ import {
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { RecipeStorageFields } from '@/shared/RecipeStoragePanel'
 import { groupRecipeSteps, recipeTips, DEFAULT_SUBRECIPE, ensureStepGroups } from '@/domain/recipeMath'
+import { normalizeYoutubeUrl } from '@/domain/youtube'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
-import { Button, Field, PageHeader, inputClass } from '@/shared/ui'
+import { appAlert, appPrompt } from '@/shared/dialog'
+import { AutoTextarea, Button, Field, PageHeader, RemoveButton, inputClass } from '@/shared/ui'
 
 /** Earliest stage first, preserving each step’s relative order inside its stage. */
 function orderStepsByStage(steps: RecipeStep[]): RecipeStep[] {
@@ -64,15 +71,17 @@ export function RecipeEditPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [source, setSource] = useState('')
+  const [youtubeUrl, setYoutubeUrl] = useState('')
   const [tips, setTips] = useState<string[]>([''])
   const [recipeKind, setRecipeKind] = useState<RecipeKind>('dish')
   const [yieldIngredientId, setYieldIngredientId] = useState(0)
   const [yieldAmount, setYieldAmount] = useState(0)
   const [category, setCategory] = useState<DishCategory>('other')
+  const [technique, setTechnique] = useState<PreparationTechnique>('other')
   const [effort, setEffort] = useState<Effort>('easy')
   const [portions, setPortions] = useState(4)
-  const [storageDays, setStorageDays] = useState(3)
-  const [storageEnv, setStorageEnv] = useState<'fridge' | 'freezer' | 'room'>('fridge')
+  const [fridgeDays, setFridgeDays] = useState(3)
+  const [freezerDays, setFreezerDays] = useState(0)
   const [storageInstructions, setStorageInstructions] = useState('')
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>()
   const [lines, setLines] = useState<RecipeIngredientLine[]>([])
@@ -135,6 +144,7 @@ export function RecipeEditPage() {
     setName(existing.name)
     setDescription(existing.description)
     setSource(existing.source ?? '')
+    setYoutubeUrl(existing.youtubeUrl ?? '')
     setTips(() => {
       const list = recipeTips(existing)
       return list.length > 0 ? list : ['']
@@ -142,11 +152,13 @@ export function RecipeEditPage() {
     setRecipeKind(recipeKindOf(existing))
     setYieldIngredientId(existing.yieldIngredientId ?? ingredients[0]?.id ?? 0)
     setYieldAmount(existing.yieldAmount ?? 0)
-    setCategory(existing.category)
+    setCategory(recipeCategory(existing))
+    setTechnique(recipeTechnique(existing))
     setEffort(existing.effort)
     setPortions(existing.portions)
-    setStorageDays(existing.storageDays)
-    setStorageEnv(existing.storageEnv)
+    const stored = readRecipeStorageDays(existing)
+    setFridgeDays(stored.fridgeDays)
+    setFreezerDays(stored.freezerDays)
     setStorageInstructions(existing.storageInstructions ?? '')
     setImageDataUrl(existing.imageDataUrl)
     setLines(existing.ingredients)
@@ -160,51 +172,65 @@ export function RecipeEditPage() {
   async function save() {
     const normalizedSteps = ensureStepGroups(steps)
     if (!name.trim() || lines.length === 0 || normalizedSteps.every((s) => !s.description.trim())) {
-      alert('Name, at least one ingredient, and one step are required.')
+      await appAlert('Name, at least one ingredient, and one step are required.', { title: 'Cannot save' })
       return
     }
     if (normalizedSteps.some((s) => !s.group?.trim())) {
-      alert('Every step must belong to a named subrecipe.')
+      await appAlert('Every step must belong to a named subrecipe.', { title: 'Cannot save' })
       return
     }
     if (isPrep && (!yieldIngredientId || yieldAmount <= 0)) {
-      alert('Prep recipes need a pantry ingredient and yield amount.')
+      await appAlert('Prep recipes need a pantry ingredient and yield amount.', { title: 'Cannot save' })
       return
     }
     for (const line of lines) {
       const ing = ingredients.find((i) => i.id === line.ingredientId)
       if (!ing) {
-        alert('Every line needs a valid ingredient.')
+        await appAlert('Every line needs a valid ingredient.', { title: 'Cannot save' })
         return
       }
       const measure = measureUnitOf(line, ing)
       if (!canUseMeasureUnit(ing, measure)) {
-        alert(
+        await appAlert(
           `${ing.name}: ${measure} needs a density (set grams per tablespoon on the ingredient) or use ${ing.unit}.`,
+          { title: 'Cannot save' },
         )
         return
       }
       if (line.amount <= 0) {
-        alert(`${ing.name}: amount must be greater than zero.`)
+        await appAlert(`${ing.name}: amount must be greater than zero.`, { title: 'Cannot save' })
         return
       }
+    }
+    let youtube: string | undefined
+    if (youtubeUrl.trim()) {
+      youtube = normalizeYoutubeUrl(youtubeUrl)
+      if (!youtube) {
+        await appAlert('YouTube URL looks invalid. Use a youtube.com or youtu.be link.', { title: 'Cannot save' })
+        return
+      }
+    }
+    if (recipeStorageOptions({ fridgeDays, freezerDays }).length === 0) {
+      await appAlert('Set at least one storage option (fridge or freezer days greater than 0).', { title: 'Cannot save' })
+      return
     }
     const now = new Date().toISOString()
     const payload: Omit<Recipe, 'id'> = {
       name: name.trim(),
       description: description.trim(),
       source: source.trim() || undefined,
+      youtubeUrl: youtube,
       tips: tips.map((t) => t.trim()).filter(Boolean),
       tip: '',
       recipeKind,
       yieldIngredientId: isPrep ? yieldIngredientId : undefined,
       yieldAmount: isPrep ? yieldAmount : undefined,
       category,
+      technique,
       effort,
       portions,
       storageInstructions: storageInstructions.trim() || undefined,
-      storageDays,
-      storageEnv,
+      ...recipeStorageFields(fridgeDays, freezerDays),
       imageDataUrl,
       ingredients: lines.map((line) => {
         const ing = ingredients.find((i) => i.id === line.ingredientId)!
@@ -223,6 +249,7 @@ export function RecipeEditPage() {
           ...s,
           group: s.group!.trim(),
           daysAhead: daysAhead > 0 ? daysAhead : undefined,
+          imageDataUrl: s.imageDataUrl?.trim() || undefined,
         }
       }),
       createdAt: existing?.createdAt ?? now,
@@ -247,9 +274,8 @@ export function RecipeEditPage() {
           <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Short description">
-          <textarea
-            className={inputClass}
-            rows={2}
+          <AutoTextarea
+            minRows={2}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -265,46 +291,19 @@ export function RecipeEditPage() {
             onChange={(e) => setSource(e.target.value)}
           />
         </Field>
-        <section>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="text-lg">Chef’s tips</h2>
-            <Button
-              variant="secondary"
-              onClick={() => setTips([...tips, ''])}
-            >
-              Add tip
-            </Button>
-          </div>
-          <div className="space-y-2">
-            {tips.map((tip, idx) => (
-              <div key={idx} className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <Field label={`Tip ${idx + 1}`}>
-                    <textarea
-                      className={inputClass}
-                      rows={2}
-                      value={tip}
-                      onChange={(e) => {
-                        const next = [...tips]
-                        next[idx] = e.target.value
-                        setTips(next)
-                      }}
-                    />
-                  </Field>
-                </div>
-                {tips.length > 1 ? (
-                  <Button
-                    variant="ghost"
-                    className="mt-7 shrink-0"
-                    onClick={() => setTips(tips.filter((_, i) => i !== idx))}
-                  >
-                    ×
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
+        <Field
+          label="YouTube video (optional)"
+          hint="Opens in the browser or YouTube app. Paste a youtube.com or youtu.be link."
+        >
+          <input
+            className={inputClass}
+            type="url"
+            inputMode="url"
+            value={youtubeUrl}
+            placeholder="https://youtu.be/… or https://www.youtube.com/watch?v=…"
+            onChange={(e) => setYoutubeUrl(e.target.value)}
+          />
+        </Field>
         <Field label="Recipe kind">
           <select
             className={inputClass}
@@ -313,7 +312,7 @@ export function RecipeEditPage() {
               const kind = e.target.value as RecipeKind
               setRecipeKind(kind)
               if (kind === 'prep') {
-                setStorageDays((d) => (d < 7 ? 14 : d))
+                setFridgeDays((d) => (d > 0 && d < 7 ? 14 : d === 0 ? 14 : d))
                 if (!yieldIngredientId && ingredients[0]?.id) {
                   setYieldIngredientId(ingredients[0].id)
                 }
@@ -368,6 +367,19 @@ export function RecipeEditPage() {
               ))}
             </select>
           </Field>
+          <Field label="Technique">
+            <select
+              className={inputClass}
+              value={technique}
+              onChange={(e) => setTechnique(e.target.value as PreparationTechnique)}
+            >
+              {PREPARATION_TECHNIQUES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="Effort">
             <select
               className={inputClass}
@@ -392,26 +404,8 @@ export function RecipeEditPage() {
           </Field>
         </div>
 
-        <RecipeStorageFields
-          storageDays={storageDays}
-          storageEnv={storageEnv}
-          storageInstructions={storageInstructions}
-          onStorageDaysChange={setStorageDays}
-          onStorageEnvChange={setStorageEnv}
-          onStorageInstructionsChange={setStorageInstructions}
-        />
-
         <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-lg">Ingredients</h2>
-            <Button
-              variant="secondary"
-              disabled={ingredients.length === 0}
-              onClick={() => setIngredientPicker('add')}
-            >
-              Add
-            </Button>
-          </div>
+          <h2 className="mb-2 text-lg">Ingredients</h2>
           <div className="space-y-2">
             {lines.map((line, idx) => {
               const ing = ingredients.find((i) => i.id === line.ingredientId)
@@ -422,11 +416,11 @@ export function RecipeEditPage() {
                 : line.amount
               return (
                 <div key={idx} className="space-y-1">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
                     <button
                       type="button"
                       onClick={() => setIngredientPicker(idx)}
-                      className={`${inputClass} min-w-0 flex-1 text-left`}
+                      className={`${inputClass} flex w-full min-w-0 flex-1 flex-col justify-center text-left`}
                     >
                       <span className="block truncate font-medium">
                         {ing?.name ?? 'Choose ingredient'}
@@ -437,60 +431,61 @@ export function RecipeEditPage() {
                           : 'Tap to search'}
                       </span>
                     </button>
-                    <input
-                      className={`${inputClass} w-20`}
-                      type="number"
-                      min={0}
-                      step="0.1"
-                      value={displayAmount}
-                      onChange={(e) => {
-                        if (!ing) return
-                        const measureAmount = Number(e.target.value)
-                        const next = [...lines]
-                        try {
-                          next[idx] = {
-                            ...line,
-                            amount: toStockAmount(measureAmount, measure, ing),
-                            measureUnit: measure === ing.unit ? undefined : measure,
+                    <div className="flex shrink-0 items-stretch gap-2">
+                      <input
+                        className={`${inputClass} h-auto w-20`}
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={displayAmount}
+                        onChange={(e) => {
+                          if (!ing) return
+                          const measureAmount = Number(e.target.value)
+                          const next = [...lines]
+                          try {
+                            next[idx] = {
+                              ...line,
+                              amount: toStockAmount(measureAmount, measure, ing),
+                              measureUnit: measure === ing.unit ? undefined : measure,
+                            }
+                            setLines(next)
+                          } catch {
+                            /* ignore while typing invalid spoon without density */
                           }
-                          setLines(next)
-                        } catch {
-                          /* ignore while typing invalid spoon without density */
-                        }
-                      }}
-                    />
-                    <select
-                      className={`${inputClass} w-24`}
-                      value={measure}
-                      onChange={(e) => {
-                        if (!ing) return
-                        const nextMeasure = e.target.value as MeasureUnit
-                        const shown = fromStockAmount(line.amount, measure, ing)
-                        const next = [...lines]
-                        try {
-                          next[idx] = {
-                            ...line,
-                            amount: toStockAmount(shown, nextMeasure, ing),
-                            measureUnit: nextMeasure === ing.unit ? undefined : nextMeasure,
+                        }}
+                      />
+                      <select
+                        className={`${inputClass} h-auto w-24`}
+                        value={measure}
+                        onChange={async (e) => {
+                          if (!ing) return
+                          const nextMeasure = e.target.value as MeasureUnit
+                          const shown = fromStockAmount(line.amount, measure, ing)
+                          const next = [...lines]
+                          try {
+                            next[idx] = {
+                              ...line,
+                              amount: toStockAmount(shown, nextMeasure, ing),
+                              measureUnit: nextMeasure === ing.unit ? undefined : nextMeasure,
+                            }
+                            setLines(next)
+                          } catch (err) {
+                            await appAlert(err instanceof Error ? err.message : 'Cannot convert unit')
                           }
-                          setLines(next)
-                        } catch (err) {
-                          alert(err instanceof Error ? err.message : 'Cannot convert unit')
-                        }
-                      }}
-                    >
-                      {measureOptions.map((u) => (
-                        <option key={u} value={u}>
-                          {u}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      variant="ghost"
-                      onClick={() => setLines(lines.filter((_, i) => i !== idx))}
-                    >
-                      ×
-                    </Button>
+                        }}
+                      >
+                        {measureOptions.map((u) => (
+                          <option key={u} value={u}>
+                            {u}
+                          </option>
+                        ))}
+                      </select>
+                      <RemoveButton
+                        icon
+                        className="h-auto min-h-10 self-stretch"
+                        onClick={() => setLines(lines.filter((_, i) => i !== idx))}
+                      />
+                    </div>
                   </div>
                   {multiStage ? (
                     <label className="flex items-center gap-2 text-xs text-ink-muted">
@@ -516,7 +511,7 @@ export function RecipeEditPage() {
                       </select>
                     </label>
                   ) : null}
-                  {ing && measure !== ing.unit ? (
+                  {ing && measure !== ing.unit && !isSpoonUnit(measure) ? (
                     <p className="text-xs text-ink-muted">
                       Stock: {line.amount} {ing.unit}
                     </p>
@@ -524,35 +519,56 @@ export function RecipeEditPage() {
                 </div>
               )
             })}
+            <Button
+              variant="secondary"
+              className="w-full"
+              disabled={ingredients.length === 0}
+              onClick={() => setIngredientPicker('add')}
+            >
+              Add ingredient
+            </Button>
           </div>
         </section>
 
         <section>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg">Steps</h2>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                const name = prompt('Subrecipe name (e.g. Rice, Sauce, Garnish)')
-                if (name === null) return
-                const group = name.trim()
-                if (!group) {
-                  alert('Subrecipe name is required.')
-                  return
-                }
-                setSteps([
-                  ...ensureStepGroups(steps),
-                  { id: uid(), description: '', requiresTimer: false, group },
-                ])
-              }}
-            >
-              Add subrecipe
+          <h2 className="mb-2 text-lg">Chef’s tips</h2>
+          <div className="space-y-2">
+            {tips.map((tip, idx) => (
+              <div key={idx} className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <Field label={`Tip ${idx + 1}`}>
+                    <AutoTextarea
+                      minRows={2}
+                      value={tip}
+                      onChange={(e) => {
+                        const next = [...tips]
+                        next[idx] = e.target.value
+                        setTips(next)
+                      }}
+                    />
+                  </Field>
+                </div>
+                {tips.length > 1 ? (
+                  <RemoveButton
+                    icon
+                    className="mt-7"
+                    onClick={() => setTips(tips.filter((_, i) => i !== idx))}
+                  />
+                ) : null}
+              </div>
+            ))}
+            <Button variant="secondary" className="w-full" onClick={() => setTips([...tips, ''])}>
+              Add tip
             </Button>
           </div>
+        </section>
+
+        <section>
+          <h2 className="mb-2 text-lg">Steps</h2>
           <p className="mb-3 text-xs text-ink-muted">
-            Every step belongs to a named subrecipe (rice, sauce, garnish…). Use “When” for work
-            that happens on an earlier day — planning the cook then also books a prep session for
-            it. Add steps inside each subrecipe.
+            Every step belongs to a named subrecipe (rice, sauce, garnish…). Set “When” on the
+            subrecipe for work that happens on an earlier day — planning the cook then also books a
+            prep session for it.
           </p>
           {multiStage ? (
             <p className="mb-3 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-xs text-ink-muted">
@@ -565,12 +581,13 @@ export function RecipeEditPage() {
               const sectionKey = section.steps[0]?.id ?? section.name
               const draftName = groupDrafts[sectionKey]
               const displayName = draftName ?? section.name
+              const sectionWhen = stageOfStep(section.steps[0] ?? {})
               return (
               <div
                 key={sectionKey}
                 className="space-y-3 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
               >
-                <div className="flex flex-wrap items-end justify-between gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <Field label="Subrecipe name">
                       <input
@@ -600,79 +617,24 @@ export function RecipeEditPage() {
                       />
                     </Field>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      className="!py-1 !text-xs"
-                      onClick={() => {
-                        const lastInSection = section.steps[section.steps.length - 1]
-                        const insertAfter = lastInSection
-                          ? steps.findIndex((s) => s.id === lastInSection.id)
-                          : steps.length - 1
-                        const groupName =
-                          (groupDrafts[sectionKey] ?? section.name).trim() || DEFAULT_SUBRECIPE
-                        const newStep: RecipeStep = {
-                          id: uid(),
-                          description: '',
-                          requiresTimer: false,
-                          group: groupName,
-                          daysAhead: lastInSection?.daysAhead,
-                        }
-                        const next = [...ensureStepGroups(steps)]
-                        next.splice(Math.max(insertAfter, -1) + 1, 0, newStep)
-                        setSteps(next)
-                      }}
-                    >
-                      Add step
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="!py-1 !text-xs"
-                      onClick={() => {
-                        const ids = new Set(section.steps.map((s) => s.id))
-                        const remaining = ensureStepGroups(steps).filter((s) => !ids.has(s.id))
-                        setGroupDrafts((prev) => {
-                          const next = { ...prev }
-                          delete next[sectionKey]
-                          return next
-                        })
-                        if (remaining.length === 0) {
-                          setSteps([
-                            {
-                              id: uid(),
-                              description: '',
-                              requiresTimer: false,
-                              group: DEFAULT_SUBRECIPE,
-                            },
-                          ])
-                          return
-                        }
-                        setSteps(remaining)
-                      }}
-                    >
-                      Remove subrecipe
-                    </Button>
-                  </div>
-                </div>
-                <p className="text-xs text-ink-muted">
-                  {section.steps.length} step{section.steps.length === 1 ? '' : 's'}
-                </p>
-                {section.steps.map((step, localIdx) => {
-                  const idx = steps.findIndex((s) => s.id === step.id)
-                  return (
-                    <div key={step.id} className="rounded-lg border border-line bg-paper-elevated p-3">
+                  <div className="min-w-[10rem] sm:w-44">
                       <Field label="When">
                         <select
                           className={inputClass}
-                          value={stageOfStep(step)}
+                          value={sectionWhen}
                           onChange={(e) => {
                             const daysAhead = Number(e.target.value)
-                            const next = [...steps]
-                            next[idx] = {
-                              ...step,
-                              daysAhead: daysAhead > 0 ? daysAhead : undefined,
-                            }
-                            setSteps(next)
+                            const ids = new Set(section.steps.map((s) => s.id))
+                            setSteps(
+                              steps.map((s) =>
+                                ids.has(s.id)
+                                  ? {
+                                      ...s,
+                                      daysAhead: daysAhead > 0 ? daysAhead : undefined,
+                                    }
+                                  : s,
+                              ),
+                            )
                           }}
                         >
                           {stageOptions().map((opt) => (
@@ -682,10 +644,18 @@ export function RecipeEditPage() {
                           ))}
                         </select>
                       </Field>
+                    </div>
+                </div>
+                <p className="text-xs text-ink-muted">
+                  {section.steps.length} step{section.steps.length === 1 ? '' : 's'}
+                </p>
+                {section.steps.map((step, localIdx) => {
+                  const idx = steps.findIndex((s) => s.id === step.id)
+                  return (
+                    <div key={step.id} className="rounded-lg border border-line bg-paper-elevated p-3">
                       <Field label={`${displayName} · step ${localIdx + 1}`}>
-                        <textarea
-                          className={inputClass}
-                          rows={2}
+                        <AutoTextarea
+                          minRows={2}
                           value={step.description}
                           onChange={(e) => {
                             const next = [...steps]
@@ -694,6 +664,17 @@ export function RecipeEditPage() {
                           }}
                         />
                       </Field>
+                      <ImageUploadField
+                        label="Step photo"
+                        hint="Optional — tap the photo while cooking to open the gallery."
+                        value={step.imageDataUrl}
+                        maxWidth={960}
+                        onChange={(dataUrl) => {
+                          const next = [...steps]
+                          next[idx] = { ...step, imageDataUrl: dataUrl }
+                          setSteps(next)
+                        }}
+                      />
                       <label className="mt-2 flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
@@ -738,9 +719,8 @@ export function RecipeEditPage() {
                           </select>
                         </div>
                       ) : null}
-                      <Button
-                        variant="ghost"
-                        className="mt-1"
+                      <RemoveButton
+                        className="mt-2 w-full"
                         onClick={() => {
                           const remaining = steps.filter((_, i) => i !== idx)
                           if (remaining.length === 0) {
@@ -758,17 +738,99 @@ export function RecipeEditPage() {
                           }
                           setSteps(ensureStepGroups(remaining))
                         }}
-                      >
-                        Remove step
-                      </Button>
+                      />
                     </div>
                   )
                 })}
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    const lastInSection = section.steps[section.steps.length - 1]
+                    const insertAfter = lastInSection
+                      ? steps.findIndex((s) => s.id === lastInSection.id)
+                      : steps.length - 1
+                    const groupName =
+                      (groupDrafts[sectionKey] ?? section.name).trim() || DEFAULT_SUBRECIPE
+                    const newStep: RecipeStep = {
+                      id: uid(),
+                      description: '',
+                      requiresTimer: false,
+                      group: groupName,
+                      daysAhead: lastInSection?.daysAhead,
+                    }
+                    const next = [...ensureStepGroups(steps)]
+                    next.splice(Math.max(insertAfter, -1) + 1, 0, newStep)
+                    setSteps(next)
+                  }}
+                >
+                  Add step
+                </Button>
+                <RemoveButton
+                  className="w-full"
+                  label="Remove subrecipe"
+                  onClick={() => {
+                    const ids = new Set(section.steps.map((s) => s.id))
+                    const remaining = ensureStepGroups(steps).filter((s) => !ids.has(s.id))
+                    setGroupDrafts((prev) => {
+                      const next = { ...prev }
+                      delete next[sectionKey]
+                      return next
+                    })
+                    if (remaining.length === 0) {
+                      setSteps([
+                        {
+                          id: uid(),
+                          description: '',
+                          requiresTimer: false,
+                          group: DEFAULT_SUBRECIPE,
+                        },
+                      ])
+                      return
+                    }
+                    setSteps(remaining)
+                  }}
+                />
               </div>
               )
             })}
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={async () => {
+                const name = await appPrompt(
+                  'Name this part of the recipe (e.g. Rice, Sauce, Garnish).',
+                  {
+                    title: 'Subrecipe name',
+                    placeholder: 'Rice',
+                    confirmLabel: 'Add',
+                  },
+                )
+                if (name === null) return
+                const group = name.trim()
+                if (!group) {
+                  await appAlert('Subrecipe name is required.', { title: 'Cannot save' })
+                  return
+                }
+                setSteps([
+                  ...ensureStepGroups(steps),
+                  { id: uid(), description: '', requiresTimer: false, group },
+                ])
+              }}
+            >
+              Add subrecipe
+            </Button>
           </div>
         </section>
+
+        <RecipeStorageFields
+          fridgeDays={fridgeDays}
+          freezerDays={freezerDays}
+          storageInstructions={storageInstructions}
+          onFridgeDaysChange={setFridgeDays}
+          onFreezerDaysChange={setFreezerDays}
+          onStorageInstructionsChange={setStorageInstructions}
+        />
 
         <Button className="w-full" onClick={() => void save()}>
           Save recipe

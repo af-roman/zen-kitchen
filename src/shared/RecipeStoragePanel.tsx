@@ -1,22 +1,27 @@
 import type { ReactNode } from 'react'
-import type { StorageEnv } from '@/domain/types'
 import { formatStorageSummary } from '@/domain/storage'
-import { Field, inputClass } from '@/shared/ui'
+import { AutoTextarea, Field, inputClass } from '@/shared/ui'
 
 export function RecipeStoragePanel({
+  fridgeDays,
+  freezerDays,
   storageDays,
   storageEnv,
   storageInstructions,
 }: {
-  storageDays: number
-  storageEnv: StorageEnv
+  fridgeDays?: number
+  freezerDays?: number
+  /** @deprecated legacy */
+  storageDays?: number
+  /** @deprecated legacy */
+  storageEnv?: 'fridge' | 'freezer' | 'room'
   storageInstructions?: string
 }) {
   return (
     <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
       <h2 className="mb-3 text-lg">Storage</h2>
       <p className="mb-3 text-sm font-medium text-ink">
-        {formatStorageSummary({ storageDays, storageEnv })}
+        {formatStorageSummary({ fridgeDays, freezerDays, storageDays, storageEnv })}
       </p>
       {storageInstructions?.trim() ? (
         <p className="whitespace-pre-wrap text-sm text-ink-muted">{storageInstructions.trim()}</p>
@@ -28,54 +33,55 @@ export function RecipeStoragePanel({
 }
 
 export function RecipeStorageFields({
-  storageDays,
-  storageEnv,
+  fridgeDays,
+  freezerDays,
   storageInstructions,
-  onStorageDaysChange,
-  onStorageEnvChange,
+  onFridgeDaysChange,
+  onFreezerDaysChange,
   onStorageInstructionsChange,
   footer,
 }: {
-  storageDays: number
-  storageEnv: StorageEnv
+  fridgeDays: number
+  freezerDays: number
   storageInstructions: string
-  onStorageDaysChange: (days: number) => void
-  onStorageEnvChange: (env: StorageEnv) => void
+  onFridgeDaysChange: (days: number) => void
+  onFreezerDaysChange: (days: number) => void
   onStorageInstructionsChange: (text: string) => void
   footer?: ReactNode
 }) {
   return (
     <section className="space-y-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
       <h2 className="text-lg">Storage</h2>
+      <p className="text-sm text-ink-muted">
+        Set how long leftovers keep in each place. Leave a field at 0 to skip that option. When you
+        cook, you choose fridge or freezer.
+      </p>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Keeps (days)">
+        <Field label="Fridge (days)" hint="0 = not offered">
           <input
             className={inputClass}
             type="number"
-            min={1}
-            value={storageDays}
-            onChange={(e) => onStorageDaysChange(Number(e.target.value))}
+            min={0}
+            value={fridgeDays}
+            onChange={(e) => onFridgeDaysChange(Number(e.target.value))}
           />
         </Field>
-        <Field label="Where">
-          <select
+        <Field label="Freezer (days)" hint="0 = not offered">
+          <input
             className={inputClass}
-            value={storageEnv}
-            onChange={(e) => onStorageEnvChange(e.target.value as StorageEnv)}
-          >
-            <option value="fridge">Fridge</option>
-            <option value="freezer">Freezer</option>
-            <option value="room">Room temperature</option>
-          </select>
+            type="number"
+            min={0}
+            value={freezerDays}
+            onChange={(e) => onFreezerDaysChange(Number(e.target.value))}
+          />
         </Field>
       </div>
       <Field
         label="Storage instructions"
         hint="Optional notes — container, reheating, freezing tips, etc."
       >
-        <textarea
-          className={inputClass}
-          rows={3}
+        <AutoTextarea
+          minRows={3}
           value={storageInstructions}
           placeholder="e.g. Cool completely, store in an airtight container…"
           onChange={(e) => onStorageInstructionsChange(e.target.value)}

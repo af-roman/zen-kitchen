@@ -1,4 +1,5 @@
 import type { CookingSession, Ingredient, Nutrition, Recipe, RecipeStep } from '@/domain/types'
+import { isAlwaysAvailable } from '@/domain/kitchen'
 import { emptyNutrition, nutritionForAmount, addNutrition, scaleNutrition } from '@/domain/nutrition'
 import { dishStage, stageIngredients } from '@/domain/stages'
 
@@ -29,10 +30,12 @@ export function stockTotals(pantryAmounts: { ingredientId: number; amountLeft: n
 /**
  * Ingredient amounts a session still needs to pull from pantry (skips completed dishes).
  * Only the stage each dish cooks counts, so chained prep legs are not double-counted.
+ * Always-available ingredients (e.g. tap water) are omitted.
  */
 export function sessionIngredientNeeds(
   session: CookingSession,
   recipes: Map<number, Recipe> | Recipe[],
+  ingredientById?: Map<number, { alwaysAvailable?: boolean }>,
 ): Map<number, number> {
   const recipeById =
     recipes instanceof Map ? recipes : new Map(recipes.map((r) => [r.id!, r]))
@@ -43,6 +46,7 @@ export function sessionIngredientNeeds(
     if (!recipe) continue
     const scale = dish.portions / recipe.portions
     for (const line of stageIngredients(recipe, dishStage(dish))) {
+      if (isAlwaysAvailable(ingredientById?.get(line.ingredientId))) continue
       map.set(line.ingredientId, (map.get(line.ingredientId) ?? 0) + line.amount * scale)
     }
   }
@@ -59,13 +63,14 @@ export function reservedIngredientUsage(
   fromDate: string,
   untilDate: string,
   excludeSessionId?: number | null,
+  ingredientById?: Map<number, { alwaysAvailable?: boolean }>,
 ): Map<number, number> {
   const map = new Map<number, number>()
   for (const session of sessions) {
     if (session.status === 'done') continue
     if (excludeSessionId != null && session.id === excludeSessionId) continue
     if (session.date < fromDate || session.date > untilDate) continue
-    const needs = sessionIngredientNeeds(session, recipes)
+    const needs = sessionIngredientNeeds(session, recipes, ingredientById)
     for (const [ingredientId, amount] of needs) {
       map.set(ingredientId, (map.get(ingredientId) ?? 0) + amount)
     }

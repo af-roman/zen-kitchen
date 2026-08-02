@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { z } from 'zod'
 import { db } from '@/db/database'
-import { clearKitchenCatalog, markCatalogResetDone } from '@/db/seed'
+import { clearKitchenCatalog, ensureBuiltInIngredients, markCatalogResetDone } from '@/db/seed'
+import { loadSeedCatalog, seedCatalogStats } from '@/db/seed-catalog/load'
+import { appAlert, appConfirm } from '@/shared/dialog'
 import { Button, PageHeader, WarnBanner } from '@/shared/ui'
 
 const backupSchema = z.object({
@@ -54,9 +56,10 @@ export function BackupPage() {
 
   async function importBackup(file: File) {
     if (
-      !confirm(
+      !(await appConfirm(
         'Import will replace all local kitchen data with the backup. Continue?',
-      )
+        { danger: true, confirmLabel: 'Import' },
+      ))
     ) {
       return
     }
@@ -121,23 +124,50 @@ export function BackupPage() {
 
   async function resetKitchen() {
     if (
-      !confirm(
-        'Reset kitchen data? This deletes all recipes, ingredients, pantry, sessions, meals, shopping, and cook log. Goals are kept. Export a backup first if you might need this data.',
-      )
+      !(await appConfirm(
+        'Reset kitchen data? This deletes all recipes, ingredients, pantry, sessions, meals, shopping, and cook log. Goals are kept. The starter recipe catalog is loaded again. Export a backup first if you might need this data.',
+        { danger: true, confirmLabel: 'Reset' },
+      ))
     ) {
       return
     }
-    if (!confirm('Really wipe the kitchen catalog? This cannot be undone.')) {
+    if (!(await appConfirm('Really wipe the kitchen catalog? This cannot be undone.', { danger: true, confirmLabel: 'Wipe' }))) {
       return
     }
     try {
       await clearKitchenCatalog()
       await markCatalogResetDone()
-      setMessage('Kitchen data cleared. Reloading…')
+      await ensureBuiltInIngredients()
+      await loadSeedCatalog({ replaceRecipes: true })
+      setMessage('Kitchen reset and starter catalog loaded. Reloading…')
       setTimeout(() => window.location.reload(), 600)
     } catch (e) {
       console.error(e)
       setMessage(e instanceof Error ? e.message : 'Reset failed')
+    }
+  }
+
+  async function loadStarters() {
+    const stats = seedCatalogStats()
+    if (
+      !(await appConfirm(
+        `Add the starter catalog (${stats.recipeCount} recipes, ${stats.ingredientCount} ingredients)? Existing recipes with the same name are left unchanged; new ingredients are merged by name.`,
+        { confirmLabel: 'Load starters' },
+      ))
+    ) {
+      return
+    }
+    try {
+      const result = await loadSeedCatalog()
+      await appAlert(
+        `Added ${result.recipes} recipe${result.recipes === 1 ? '' : 's'} and ${result.ingredients} new ingredient${result.ingredients === 1 ? '' : 's'}.`,
+        { title: 'Starter catalog' },
+      )
+      setMessage('Starter catalog updated. Reloading…')
+      setTimeout(() => window.location.reload(), 600)
+    } catch (e) {
+      console.error(e)
+      setMessage(e instanceof Error ? e.message : 'Load failed')
     }
   }
 
@@ -153,22 +183,24 @@ export function BackupPage() {
       </WarnBanner>
 
       <section className="mt-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4 text-sm text-ink-muted">
-        <h2 className="mb-2 font-display text-lg text-accent-deep">Clean kitchen workflow</h2>
+        <h2 className="mb-2 font-display text-lg text-accent-deep">Starter catalog workflow</h2>
         <ol className="list-decimal space-y-1.5 pl-5">
-          <li>Start from an empty catalog (reload after this update, or use Reset below).</li>
-          <li>Add ingredients first, then recipes, in the app.</li>
+          <li>Empty kitchens load the starter recipes automatically on first open.</li>
+          <li>Edit ingredients, amounts, storage, and steps in the app until they feel right.</li>
           <li>Download a backup periodically so you don’t lose work.</li>
-          <li>On another device or after a wipe, restore that backup — it becomes your kitchen.</li>
+          <li>
+            When the curated backup is ready, we can promote it back into the repo seed (images as
+            files, not base64).
+          </li>
         </ol>
-        <p className="mt-3">
-          Zen Kitchen no longer auto-loads scraped seed recipes. Your backup is the source of
-          truth for a curated kitchen.
-        </p>
       </section>
 
       <div className="mt-5 space-y-3">
         <Button className="w-full" onClick={() => void exportBackup()}>
           Download backup
+        </Button>
+        <Button className="w-full" variant="secondary" onClick={() => void loadStarters()}>
+          Load starter recipes
         </Button>
         <Button
           className="w-full"

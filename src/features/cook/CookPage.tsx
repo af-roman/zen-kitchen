@@ -4,19 +4,35 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { cancelActiveCookingSession } from '@/db/servingOps'
 import type {
+  BatchStorage,
   CookLogEntry,
   CookingSession,
   Goals,
   Ingredient,
+  MeasureUnit,
   Nutrition,
   PantryItem,
   ReadyBatch,
   Recipe,
   SessionDishPlan,
 } from '@/domain/types'
-import { expiryFromCook, formatQuantity, isPrepRecipe, prepYieldAmount } from '@/domain/kitchen'
-import { formatRecipeAmount, measureUnitOf } from '@/domain/measures'
+import { INGREDIENT_CATEGORIES } from '@/domain/types'
+import { expiryFromCook, formatQuantity, isAlwaysAvailable, isPrepRecipe, prepYieldAmount, storageLabel } from '@/domain/kitchen'
+import {
+  defaultStoragePlace,
+  recipeStorageOptions,
+  storageDaysFor,
+  type StorageOption,
+} from '@/domain/storage'
+import {
+  allowedMeasureUnits,
+  formatRecipeAmount,
+  fromStockAmount,
+  measureUnitOf,
+  toStockAmount,
+} from '@/domain/measures'
 import { Sheet } from '@/shared/Sheet'
+import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
 import {
   addNutrition,
   emptyNutrition,
@@ -24,24 +40,45 @@ import {
   scaleNutrition,
   timerToSeconds,
 } from '@/domain/nutrition'
-import { groupRecipeSteps, recipeNutrition } from '@/domain/recipeMath'
+import { groupRecipeSteps } from '@/domain/recipeMath'
 import {
   dishStage,
   isPrepLeg,
-  isStagedRecipe,
   stageIngredients,
   stageLabel,
   stageSteps,
 } from '@/domain/stages'
 import { unfinishedPrepLegs } from '@/db/sessionChains'
+import { normalizeYoutubeUrl } from '@/domain/youtube'
 import { useGoals } from '@/shared/hooks'
 import { MacroBar } from '@/shared/MacroBar'
 import { CookTimer } from '@/shared/Timer'
 import { ChefTipsPanel } from '@/shared/ChefTips'
 import { RecipeStoragePanel } from '@/shared/RecipeStoragePanel'
-import { Badge, Button, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
+import {
+  galleryItemsFromSteps,
+  StepImageGallery,
+  StepImageThumb,
+} from '@/shared/StepImageGallery'
+import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
+import { appAlert, appConfirm } from '@/shared/dialog'
+import {
+  AutoTextarea,
+  Badge,
+  Button,
+  Field,
+  PageHeader,
+  RemoveButton,
+  WarnBanner,
+  inputClass,
+} from '@/shared/ui'
 
-type UsageRow = { ingredientId: number; pantryItemId: number; amountUsed: number }
+type UsageRow = {
+  ingredientId: number
+  pantryItemId: number
+  amountUsed: number
+  measureUnit?: MeasureUnit
+}
 
 export function CookPage() {
   const { id } = useParams()
@@ -134,19 +171,37 @@ function defaultUsageRow(
   ingredientId: number,
   amount: number,
   pantry: PantryItem[],
+  measureUnit?: MeasureUnit,
 ): UsageRow {
   const candidates = pantry.filter((p) => p.ingredientId === ingredientId)
   return {
     ingredientId,
     pantryItemId: candidates[0]?.id ?? 0,
     amountUsed: amount,
+    measureUnit,
   }
 }
 
-function capAmount(pantryItemId: number, amountUsed: number, pantry: PantryItem[]): number {
+function capStockAmount(pantryItemId: number, amountUsed: number, pantry: PantryItem[]): number {
+  if (!pantryItemId) return Math.max(0, amountUsed)
   const item = pantry.find((p) => p.id === pantryItemId)
   const max = item?.amountLeft ?? 0
   return Math.min(Math.max(0, amountUsed), max)
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10
+}
+
+function usageIngredientOrder(usage: UsageRow[] | undefined): number[] {
+  const order: number[] = []
+  const seen = new Set<number>()
+  for (const u of usage ?? []) {
+    if (seen.has(u.ingredientId)) continue
+    seen.add(u.ingredientId)
+    order.push(u.ingredientId)
+  }
+  return order
 }
 
 function CookSessionView({
@@ -186,6 +241,13 @@ function CookSessionView({
     addedPrep: boolean
   } | null>(null)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [galleryStartId, setGalleryStartId] = useState<string | null>(null)
+  const [addIngredientOpen, setAddIngredientOpen] = useState(false)
+  const [storagePick, setStoragePick] = useState<{
+    idx: number
+    options: StorageOption[]
+    recipeName: string
+  } | null>(null)
   const dish = dishes[activeIdx]
   const recipe = dish ? recipeById.get(dish.recipeId) : undefined
 
@@ -194,13 +256,19 @@ function CookSessionView({
   }, [sessionId])
 
   useEffect(() => {
+    setGalleryStartId(null)
+  }, [activeIdx, dish?.recipeId])
+
+  useEffect(() => {
     if (dishes.length === 0) return
     if (!dishes.every((d) => d.completed)) return
     if (finishPrompted.current) return
     finishPrompted.current = true
-    if (confirm('All recipes in this session are cooked. Finish the cooking session now?')) {
-      void finishSession(true)
-    }
+    void (async () => {
+      if (await appConfirm('All recipes in this session are cooked. Finish the cooking session now?')) {
+        await finishSession(true)
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dishes.map((d) => d.completed).join(',')])
 
@@ -213,11 +281,9 @@ function CookSessionView({
     })
   }
 
-  /** Per-portion nutrition: a leg only touches part of the recipe, so use the recipe instead. */
+  /** Per-portion nutrition from what was actually used this cook. */
   function dishNutrition(d: SessionDishPlan): Nutrition {
     if (isPrepLeg(d)) return emptyNutrition()
-    const r = recipeById.get(d.recipeId)
-    if (r && isStagedRecipe(r)) return recipeNutrition(r, ingById)
     return liveNutrition(d)
   }
 
@@ -225,10 +291,10 @@ function CookSessionView({
     if (!d.usage?.length) return emptyNutrition()
     let total = emptyNutrition()
     for (const u of d.usage) {
-      if (!u.pantryItemId || u.amountUsed <= 0) continue
-      const item = pantry.find((p) => p.id === u.pantryItemId)
+      if (u.amountUsed <= 0) continue
       const ing = ingById.get(u.ingredientId)
       if (!ing) continue
+      const item = u.pantryItemId ? pantry.find((p) => p.id === u.pantryItemId) : undefined
       const per100 = item?.nutritionOverride ?? ing.nutritionPer100
       total = addNutrition(
         total,
@@ -243,13 +309,15 @@ function CookSessionView({
     const r = recipeById.get(d.recipeId)
     if (!r || d.usage?.length) return
     const scale = d.portions / r.portions
-    const usage = stageIngredients(r, dishStage(d)).map((line) =>
-      defaultUsageRow(
+    const usage = stageIngredients(r, dishStage(d)).map((line) => {
+      const ing = ingById.get(line.ingredientId)
+      return defaultUsageRow(
         line.ingredientId,
-        Math.round(line.amount * scale * 10) / 10,
+        round1(line.amount * scale),
         pantry,
-      ),
-    )
+        ing ? measureUnitOf(line, ing) : undefined,
+      )
+    })
     updateDish(idx, { usage })
   }
 
@@ -258,41 +326,71 @@ function CookSessionView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIdx, dish?.portions, recipe?.id])
 
-  async function finishDish(idx: number) {
+  async function finishDish(
+    idx: number,
+    opts?: { storagePlace?: BatchStorage; skipChecks?: boolean },
+  ) {
     const d = dishes[idx]
     const r = recipeById.get(d.recipeId)
     if (!r) return
 
-    const stage = dishStage(d)
-    const lines = stageIngredients(r, stage)
-    const steps = stageSteps(r, stage)
-    const stepsDone = steps.filter((s) => d.stepsDone?.includes(s.id)).length
-    if (stepsDone < steps.length) {
-      if (
-        !confirm(
-          `Only ${stepsDone} of ${steps.length} cooking steps are checked off. Mark ${
-            isPrepLeg(d) ? 'stage done' : 'dish cooked'
-          } anyway?`,
-        )
-      ) {
-        return
+    if (!opts?.skipChecks) {
+      const stage = dishStage(d)
+      const steps = stageSteps(r, stage)
+      const stepsDone = steps.filter((s) => d.stepsDone?.includes(s.id)).length
+      if (stepsDone < steps.length) {
+        if (
+          !(await appConfirm(
+            `Only ${stepsDone} of ${steps.length} cooking steps are checked off. Mark ${
+              isPrepLeg(d) ? 'stage done' : 'dish cooked'
+            } anyway?`,
+          ))
+        ) {
+          return
+        }
+      }
+
+      const missingPantry: string[] = []
+      for (const ingredientId of usageIngredientOrder(d.usage)) {
+        const ing = ingById.get(ingredientId)
+        if (isAlwaysAvailable(ing)) continue
+        const rows = usageForIngredient(d, ingredientId)
+        const totalUsed = rows.reduce((sum, u) => sum + u.amountUsed, 0)
+        if (totalUsed <= 0) continue
+        if (!rows.some((u) => u.pantryItemId > 0)) {
+          missingPantry.push(ing?.name ?? 'Unknown ingredient')
+        }
+      }
+      if (missingPantry.length > 0) {
+        if (
+          !(await appConfirm(
+            `No pantry item selected for: ${missingPantry.join(', ')}. Finish anyway?`,
+          ))
+        ) {
+          return
+        }
+      }
+
+      for (const u of d.usage ?? []) {
+        if (!u.pantryItemId || u.amountUsed <= 0) continue
+        const ing = ingById.get(u.ingredientId)
+        const item = pantry.find((p) => p.id === u.pantryItemId)
+        if (u.amountUsed > (item?.amountLeft ?? 0)) {
+          await appAlert(`Amount for ${ing?.name ?? 'ingredient'} exceeds available stock.`)
+          return
+        }
       }
     }
 
-    for (const line of lines) {
-      const rows = usageForIngredient(d, line.ingredientId).filter((u) => u.pantryItemId > 0)
-      if (rows.length === 0) {
-        if (!confirm(`No pantry item selected for ${ingById.get(line.ingredientId)?.name ?? 'an ingredient'}. Finish anyway?`)) {
+    let storagePlace = opts?.storagePlace ?? d.storagePlace
+    if (!isPrepLeg(d) && !isPrepRecipe(r)) {
+      const options = recipeStorageOptions(r)
+      if (!storagePlace) {
+        if (options.length > 1) {
+          setStoragePick({ idx, options, recipeName: r.name })
           return
         }
-        break
-      }
-      for (const row of rows) {
-        const item = pantry.find((p) => p.id === row.pantryItemId)
-        if (row.amountUsed > (item?.amountLeft ?? 0)) {
-          alert(`Amount for ${ingById.get(line.ingredientId)?.name ?? 'ingredient'} exceeds available stock.`)
-          return
-        }
+        storagePlace = options[0]?.place ?? 'fridge'
       }
     }
 
@@ -305,15 +403,20 @@ function CookSessionView({
         updatedAt: new Date().toISOString(),
       })
     }
-    updateDish(idx, { completed: true, nutritionPerPortion: dishNutrition(d) })
+    updateDish(idx, {
+      completed: true,
+      nutritionPerPortion: dishNutrition(d),
+      ...(storagePlace ? { storagePlace } : {}),
+    })
+    setStoragePick(null)
   }
 
   async function finishSession(skipConfirm = false) {
     if (
       !skipConfirm &&
-      !confirm(
+      !(await appConfirm(
         'Finish this cooking session? Portions, stock changes, and nutrition (except notes) will be locked.',
-      )
+      ))
     ) {
       return
     }
@@ -335,11 +438,12 @@ function CookSessionView({
         const yieldAmt = prepYieldAmount(r, d.portions)
         if (yieldAmt <= 0) continue
         const yieldIng = ingById.get(r.yieldIngredientId)
+        const prepPlace = d.storagePlace ?? defaultStoragePlace(r)
         const pantryItem: Omit<PantryItem, 'id'> = {
           ingredientId: r.yieldIngredientId,
           brand: 'Homemade',
           amountLeft: yieldAmt,
-          expiryDate: expiryFromCook(cookedAt, r.storageDays),
+          expiryDate: expiryFromCook(cookedAt, storageDaysFor(r, prepPlace)),
           createdAt: now,
           updatedAt: now,
         }
@@ -353,11 +457,13 @@ function CookSessionView({
 
       const nutrition = d.nutritionPerPortion ?? dishNutrition(d)
       const planned = d.portionsPlanned ?? 0
+      const storagePlace = d.storagePlace ?? defaultStoragePlace(r)
       const batch: Omit<ReadyBatch, 'id'> = {
         recipeId: d.recipeId,
         sessionId,
         cookedAt,
-        expiresAt: expiryFromCook(cookedAt, r.storageDays),
+        expiresAt: expiryFromCook(cookedAt, storageDaysFor(r, storagePlace)),
+        storagePlace,
         portionsLeft: Math.max(0, d.portions - planned),
         portionsPlanned: planned,
         nutritionPerPortion: nutrition,
@@ -491,8 +597,10 @@ function CookSessionView({
   const stage = dishStage(dish)
   const stageLines = stageIngredients(recipe, stage)
   const stageStepList = stageSteps(recipe, stage)
+  const stepGalleryItems = galleryItemsFromSteps(stageStepList)
   const legOfChain = isPrepLeg(dish)
   const missingPrep = legOfChain ? [] : unfinishedPrepLegs(allSessions, dish)
+  const youtubeHref = normalizeYoutubeUrl(recipe.youtubeUrl ?? '')
 
   function updateIngredientUsage(ingredientId: number, rows: UsageRow[]) {
     updateDish(activeIdx, { usage: mergeUsage(dish, ingredientId, rows) })
@@ -531,6 +639,8 @@ function CookSessionView({
         </div>
       ) : null}
 
+      {youtubeHref ? <YoutubeWatchButton href={youtubeHref} className="mt-3" /> : null}
+
       <div className="my-4 flex gap-2 overflow-x-auto pb-1">
         {dishes.map((d, idx) => {
           const r = recipeById.get(d.recipeId)
@@ -563,21 +673,31 @@ function CookSessionView({
             disabled={dish.completed}
             onChange={(e) => {
               const portions = Number(e.target.value)
-              const usage = stageLines.map((line) => {
+              const scale = portions / recipe.portions
+              const recipeIds = new Set(stageLines.map((l) => l.ingredientId))
+              const nextUsage: UsageRow[] = []
+              for (const line of stageLines) {
+                const ing = ingById.get(line.ingredientId)
+                const measure = ing ? measureUnitOf(line, ing) : undefined
+                const target = round1(line.amount * scale)
                 const existing = usageForIngredient(dish, line.ingredientId)
                 if (existing.length > 0) {
-                  return {
+                  nextUsage.push({
                     ...existing[0],
-                    amountUsed: Math.round(line.amount * (portions / recipe.portions) * 10) / 10,
+                    amountUsed: target,
+                    measureUnit: existing[0].measureUnit ?? measure,
+                  })
+                  for (const extra of existing.slice(1)) {
+                    nextUsage.push({ ...extra, amountUsed: 0 })
                   }
+                } else {
+                  nextUsage.push(defaultUsageRow(line.ingredientId, target, pantry, measure))
                 }
-                return defaultUsageRow(
-                  line.ingredientId,
-                  Math.round(line.amount * (portions / recipe.portions) * 10) / 10,
-                  pantry,
-                )
-              })
-              updateDish(activeIdx, { portions, usage })
+              }
+              for (const u of dish.usage ?? []) {
+                if (!recipeIds.has(u.ingredientId)) nextUsage.push(u)
+              }
+              updateDish(activeIdx, { portions, usage: nextUsage })
             }}
           />
         </Field>
@@ -598,135 +718,291 @@ function CookSessionView({
 
       <section className="mb-5">
         <h2 className="mb-2 text-lg">
-          Pantry & amounts
+          Ingredients & pantry
           {legOfChain ? (
             <span className="ml-2 text-sm text-ink-muted">
               ({stageLabel(stage).toLowerCase()} only)
             </span>
           ) : null}
         </h2>
-        {stageLines.length === 0 ? (
-          <p className="text-sm text-ink-muted">This stage needs nothing from the pantry.</p>
+        {(dish.usage?.length ?? 0) === 0 ? (
+          <p className="text-sm text-ink-muted">No ingredients yet — add what you used.</p>
         ) : null}
         <ul className="space-y-3">
-          {stageLines.map((line, lineIdx) => {
-            const ing = ingById.get(line.ingredientId)
-            const candidates = pantry.filter((p) => p.ingredientId === line.ingredientId)
-            const rows =
-              usageForIngredient(dish, line.ingredientId).length > 0
-                ? usageForIngredient(dish, line.ingredientId)
-                : [defaultUsageRow(line.ingredientId, Math.round(line.amount * scale * 10) / 10, pantry)]
-            const needed = Math.round(line.amount * scale * 10) / 10
-            const needLabel = ing
-              ? formatRecipeAmount(needed, measureUnitOf(line, ing), ing)
-              : { primary: String(needed) }
+          {usageIngredientOrder(dish.usage).map((ingredientId) => {
+            const ing = ingById.get(ingredientId)
+            const always = isAlwaysAvailable(ing)
+            const candidates = pantry.filter((p) => p.ingredientId === ingredientId)
+            const rows = usageForIngredient(dish, ingredientId)
+            const recipeLine = stageLines.find((l) => l.ingredientId === ingredientId)
+            const measure =
+              rows[0]?.measureUnit ??
+              (ing && recipeLine ? measureUnitOf(recipeLine, ing) : ing?.unit ?? 'g')
+            const measureOptions = ing ? allowedMeasureUnits(ing) : ([measure] as MeasureUnit[])
+            const neededStock = recipeLine ? round1(recipeLine.amount * scale) : undefined
+            const needLabel =
+              neededStock != null && ing
+                ? formatRecipeAmount(neededStock, measure, ing)
+                : undefined
 
             return (
-              <li key={`${line.ingredientId}-${lineIdx}`} className="rounded-lg border border-line p-3">
-                <div className="mb-2 flex justify-between gap-2">
-                  <span className="font-medium">{ing?.name}</span>
-                  <span className="text-right text-xs text-ink-muted">
-                    Need {needLabel.primary}
-                    {needLabel.stockHint ? (
-                      <span className="block">({needLabel.stockHint})</span>
-                    ) : null}
-                  </span>
+              <li key={ingredientId} className="rounded-lg border border-line p-3">
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{ing?.name ?? 'Unknown'}</span>
+                    {needLabel ? (
+                      <span className="mt-0.5 block text-xs text-ink-muted">
+                        Recipe {needLabel.primary}
+                        {needLabel.stockHint ? ` (${needLabel.stockHint})` : ''}
+                      </span>
+                    ) : (
+                      <span className="mt-0.5 block text-xs text-ink-muted">Added while cooking</span>
+                    )}
+                  </div>
+                  {!dish.completed ? (
+                    <RemoveButton
+                      icon
+                      onClick={() => {
+                        updateDish(activeIdx, {
+                          usage: (dish.usage ?? []).filter((u) => u.ingredientId !== ingredientId),
+                        })
+                      }}
+                    />
+                  ) : null}
                 </div>
-                {rows.map((row, rowIdx) => (
-                  <div key={rowIdx} className={`space-y-2 ${rowIdx > 0 ? 'mt-3 border-t border-line pt-3' : ''}`}>
-                    <Field label="Pantry item">
-                      <select
-                        className={inputClass}
-                        disabled={dish.completed}
-                        value={row.pantryItemId}
-                        onChange={(e) => {
-                          const pantryItemId = Number(e.target.value)
-                          const next = [...rows]
-                          next[rowIdx] = {
-                            ...row,
-                            pantryItemId,
-                            amountUsed: capAmount(pantryItemId, row.amountUsed, pantry),
+                {always ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-ok">Always available — not deducted from the pantry.</p>
+                    <div className="flex gap-2">
+                      <Field label={`Amount (${measure})`}>
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          disabled={dish.completed}
+                          value={
+                            ing
+                              ? fromStockAmount(rows[0]?.amountUsed ?? 0, measure, ing)
+                              : rows[0]?.amountUsed ?? 0
                           }
-                          updateIngredientUsage(line.ingredientId, next)
+                          onChange={(e) => {
+                            if (!ing) return
+                            let stock = 0
+                            try {
+                              stock = toStockAmount(Number(e.target.value), measure, ing)
+                            } catch {
+                              return
+                            }
+                            updateIngredientUsage(ingredientId, [
+                              {
+                                ingredientId,
+                                pantryItemId: 0,
+                                amountUsed: Math.max(0, stock),
+                                measureUnit: measure,
+                              },
+                            ])
+                          }}
+                        />
+                      </Field>
+                      <Field label="Unit">
+                        <select
+                          className={inputClass}
+                          disabled={dish.completed || !ing}
+                          value={measure}
+                          onChange={(e) => {
+                            if (!ing) return
+                            const nextMeasure = e.target.value as MeasureUnit
+                            const shown = fromStockAmount(rows[0]?.amountUsed ?? 0, measure, ing)
+                            let stock = rows[0]?.amountUsed ?? 0
+                            try {
+                              stock = toStockAmount(shown, nextMeasure, ing)
+                            } catch {
+                              /* keep */
+                            }
+                            updateIngredientUsage(ingredientId, [
+                              {
+                                ingredientId,
+                                pantryItemId: 0,
+                                amountUsed: stock,
+                                measureUnit: nextMeasure,
+                              },
+                            ])
+                          }}
+                        >
+                          {measureOptions.map((u) => (
+                            <option key={u} value={u}>
+                              {u}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {rows.map((row, rowIdx) => {
+                      const displayAmount = ing
+                        ? fromStockAmount(row.amountUsed, measure, ing)
+                        : row.amountUsed
+                      const stockLeft =
+                        pantry.find((p) => p.id === row.pantryItemId)?.amountLeft ?? 0
+                      const maxDisplay =
+                        ing && row.pantryItemId
+                          ? fromStockAmount(stockLeft, measure, ing)
+                          : undefined
+                      return (
+                        <div
+                          key={rowIdx}
+                          className={`space-y-2 ${rowIdx > 0 ? 'mt-3 border-t border-line pt-3' : ''}`}
+                        >
+                          <Field label="Pantry item">
+                            <select
+                              className={inputClass}
+                              disabled={dish.completed}
+                              value={row.pantryItemId}
+                              onChange={(e) => {
+                                const pantryItemId = Number(e.target.value)
+                                const next = [...rows]
+                                next[rowIdx] = {
+                                  ...row,
+                                  pantryItemId,
+                                  amountUsed: capStockAmount(
+                                    pantryItemId,
+                                    row.amountUsed,
+                                    pantry,
+                                  ),
+                                  measureUnit: measure,
+                                }
+                                updateIngredientUsage(ingredientId, next)
+                              }}
+                            >
+                              {candidates.length === 0 ? (
+                                <option value={0}>No stock — add to pantry</option>
+                              ) : (
+                                <>
+                                  <option value={0}>Select pantry item…</option>
+                                  {candidates.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.brand || 'Unbranded'} · {c.amountLeft} {ing?.unit} left
+                                    </option>
+                                  ))}
+                                </>
+                              )}
+                            </select>
+                          </Field>
+                          <div className="flex gap-2">
+                            <Field label={`Amount used (${measure})`}>
+                              <input
+                                className={inputClass}
+                                type="number"
+                                min={0}
+                                max={maxDisplay}
+                                step="0.1"
+                                disabled={dish.completed}
+                                value={displayAmount}
+                                onChange={(e) => {
+                                  if (!ing) return
+                                  let stock = 0
+                                  try {
+                                    stock = toStockAmount(Number(e.target.value), measure, ing)
+                                  } catch {
+                                    return
+                                  }
+                                  const amountUsed = capStockAmount(
+                                    row.pantryItemId,
+                                    stock,
+                                    pantry,
+                                  )
+                                  const next = [...rows]
+                                  next[rowIdx] = { ...row, amountUsed, measureUnit: measure }
+                                  updateIngredientUsage(ingredientId, next)
+                                }}
+                              />
+                            </Field>
+                            <Field label="Unit">
+                              <select
+                                className={inputClass}
+                                disabled={dish.completed || !ing}
+                                value={measure}
+                                onChange={(e) => {
+                                  if (!ing) return
+                                  const nextMeasure = e.target.value as MeasureUnit
+                                  const next = rows.map((r) => ({
+                                    ...r,
+                                    measureUnit: nextMeasure,
+                                  }))
+                                  updateIngredientUsage(ingredientId, next)
+                                }}
+                              >
+                                {measureOptions.map((u) => (
+                                  <option key={u} value={u}>
+                                    {u}
+                                  </option>
+                                ))}
+                              </select>
+                            </Field>
+                          </div>
+                          {row.pantryItemId && measure !== ing?.unit ? (
+                            <p className="text-xs text-ink-muted">
+                              Stock: {row.amountUsed} {ing?.unit}
+                              {row.pantryItemId
+                                ? ` · ${stockLeft} ${ing?.unit} available`
+                                : ''}
+                            </p>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                    {!dish.completed && candidates.length > 1 ? (
+                      <Button
+                        variant="ghost"
+                        className="mt-2 !py-1 !text-xs"
+                        onClick={() => {
+                          const usedIds = new Set(rows.map((r) => r.pantryItemId))
+                          const nextItem = candidates.find((c) => c.id && !usedIds.has(c.id))
+                          if (!nextItem?.id) return
+                          updateIngredientUsage(ingredientId, [
+                            ...rows,
+                            {
+                              ingredientId,
+                              pantryItemId: nextItem.id,
+                              amountUsed: 0,
+                              measureUnit: measure,
+                            },
+                          ])
                         }}
                       >
-                        {candidates.length === 0 ? (
-                          <option value={0}>No stock — add to pantry</option>
-                        ) : (
-                          candidates.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.brand || 'Unbranded'} · {c.amountLeft} {ing?.unit} left
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </Field>
-                    <Field label={`Amount used (${ing?.unit})`}>
-                      <input
-                        className={inputClass}
-                        type="number"
-                        min={0}
-                        max={pantry.find((p) => p.id === row.pantryItemId)?.amountLeft ?? 0}
-                        disabled={dish.completed}
-                        value={row.amountUsed}
-                        onChange={(e) => {
-                          const pantryItemId = row.pantryItemId
-                          const amountUsed = capAmount(pantryItemId, Number(e.target.value), pantry)
-                          const next = [...rows]
-                          next[rowIdx] = { ...row, amountUsed }
-                          updateIngredientUsage(line.ingredientId, next)
-                        }}
-                      />
-                    </Field>
-                  </div>
-                ))}
-                {!dish.completed && candidates.length > 1 ? (
-                  <Button
-                    variant="ghost"
-                    className="mt-2 !py-1 !text-xs"
-                    onClick={() => {
-                      const usedIds = new Set(rows.map((r) => r.pantryItemId))
-                      const nextItem = candidates.find((c) => !usedIds.has(c.id!))
-                      if (!nextItem) return
-                      updateIngredientUsage(line.ingredientId, [
-                        ...rows,
-                        {
-                          ingredientId: line.ingredientId,
-                          pantryItemId: nextItem.id!,
-                          amountUsed: 0,
-                        },
-                      ])
-                    }}
-                  >
-                    + Add another pantry item
-                  </Button>
-                ) : null}
+                        + Add another pantry item
+                      </Button>
+                    ) : null}
+                  </>
+                )}
               </li>
             )
           })}
         </ul>
+        {!dish.completed ? (
+          <Button
+            variant="secondary"
+            className="mt-3 w-full"
+            onClick={() => setAddIngredientOpen(true)}
+          >
+            Add ingredient
+          </Button>
+        ) : null}
       </section>
 
       <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
         <h2 className="mb-3 text-lg">Live nutrition / portion</h2>
         <MacroBar
-          nutrition={isStagedRecipe(recipe) ? recipeNutrition(recipe, ingById) : liveNutrition(dish)}
+          nutrition={liveNutrition(dish)}
           goals={goals}
-          goalCaption={
-            isStagedRecipe(recipe)
-              ? 'Whole recipe per portion, across all stages'
-              : 'Compared to your daily targets (per portion)'
-          }
+          goalCaption="Compared to your daily targets (per portion)"
         />
       </section>
 
       <ChefTipsPanel recipe={recipe} />
-
-      <RecipeStoragePanel
-        storageDays={recipe.storageDays}
-        storageEnv={recipe.storageEnv}
-        storageInstructions={recipe.storageInstructions}
-      />
 
       <section className="mb-5">
         <h2 className="mb-2 text-lg">
@@ -756,28 +1032,39 @@ function CookSessionView({
                     const done = dish.stepsDone?.includes(step.id)
                     return (
                       <li key={step.id} className="rounded-lg border border-line bg-paper-elevated p-3">
-                        <label className="flex gap-3 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(done)}
-                            disabled={dish.completed}
-                            onChange={(e) => {
-                              const set = new Set(dish.stepsDone ?? [])
-                              if (e.target.checked) set.add(step.id)
-                              else set.delete(step.id)
-                              updateDish(activeIdx, { stepsDone: [...set] })
-                            }}
-                          />
-                          <span className={done ? 'text-ink-muted line-through' : ''}>
-                            {step.description}
-                          </span>
-                        </label>
-                        {step.requiresTimer && step.timerDuration && step.timerUnit ? (
-                          <CookTimer
-                            presetSeconds={timerToSeconds(step.timerDuration, step.timerUnit)}
-                            label={`${section.name} timer`}
-                          />
-                        ) : null}
+                        <div className="flex gap-3">
+                          {step.imageDataUrl ? (
+                            <StepImageThumb
+                              src={step.imageDataUrl}
+                              className="h-16 w-16"
+                              onOpen={() => setGalleryStartId(step.id)}
+                            />
+                          ) : null}
+                          <div className="min-w-0 flex-1">
+                            <label className="flex gap-3 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(done)}
+                                disabled={dish.completed}
+                                onChange={(e) => {
+                                  const set = new Set(dish.stepsDone ?? [])
+                                  if (e.target.checked) set.add(step.id)
+                                  else set.delete(step.id)
+                                  updateDish(activeIdx, { stepsDone: [...set] })
+                                }}
+                              />
+                              <span className={done ? 'text-ink-muted line-through' : ''}>
+                                {step.description}
+                              </span>
+                            </label>
+                            {step.requiresTimer && step.timerDuration && step.timerUnit ? (
+                              <CookTimer
+                                presetSeconds={timerToSeconds(step.timerDuration, step.timerUnit)}
+                                label={`${section.name} timer`}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
                       </li>
                     )
                   })}
@@ -792,10 +1079,22 @@ function CookSessionView({
         </p>
       </section>
 
+      <RecipeStoragePanel
+        fridgeDays={recipe.fridgeDays}
+        freezerDays={recipe.freezerDays}
+        storageDays={recipe.storageDays}
+        storageEnv={recipe.storageEnv}
+        storageInstructions={recipe.storageInstructions}
+      />
+      {dish.storagePlace ? (
+        <p className="mb-4 -mt-2 text-sm text-ink-muted">
+          Storing this batch in the {storageLabel(dish.storagePlace).toLowerCase()}.
+        </p>
+      ) : null}
+
       <Field label="Notes for this dish">
-        <textarea
-          className={inputClass}
-          rows={2}
+        <AutoTextarea
+          minRows={2}
           value={dish.notes ?? ''}
           onChange={(e) => updateDish(activeIdx, { notes: e.target.value })}
         />
@@ -818,9 +1117,9 @@ function CookSessionView({
       )}
 
       <Field label="Session notes">
-        <textarea
-          className={`${inputClass} mt-4`}
-          rows={2}
+        <AutoTextarea
+          className="mt-4"
+          minRows={2}
           value={sessionNotes}
           onChange={(e) => setSessionNotes(e.target.value)}
         />
@@ -859,6 +1158,70 @@ function CookSessionView({
           </Button>
         </div>
       </Sheet>
+      <Sheet
+        open={storagePick != null}
+        title="Where will you store it?"
+        onClose={() => setStoragePick(null)}
+      >
+        {storagePick ? (
+          <div className="space-y-3">
+            <p className="text-sm text-ink-muted">
+              Choose storage for {storagePick.recipeName}. Expiry is based on the time for that
+              place.
+            </p>
+            {storagePick.options.map((opt) => (
+              <Button
+                key={opt.place}
+                className="w-full"
+                variant={opt.place === 'fridge' ? 'primary' : 'secondary'}
+                onClick={() =>
+                  void finishDish(storagePick.idx, {
+                    storagePlace: opt.place,
+                    skipChecks: true,
+                  })
+                }
+              >
+                {storageLabel(opt.place)} · {opt.days} day{opt.days === 1 ? '' : 's'}
+              </Button>
+            ))}
+            <Button className="w-full" variant="ghost" onClick={() => setStoragePick(null)}>
+              Cancel
+            </Button>
+          </div>
+        ) : null}
+      </Sheet>
+      <StepImageGallery
+        open={galleryStartId != null}
+        startId={galleryStartId}
+        items={stepGalleryItems}
+        onClose={() => setGalleryStartId(null)}
+      />
+      <SearchPickerSheet
+        open={addIngredientOpen}
+        title="Add ingredient"
+        items={[...ingById.values()]
+          .filter((i) => i.id != null)
+          .filter((i) => !(dish.usage ?? []).some((u) => u.ingredientId === i.id))
+          .map((i) => {
+            const cat = INGREDIENT_CATEGORIES.find((c) => c.id === i.category)?.label
+            return {
+              id: i.id!,
+              label: i.name,
+              detail: `${cat ?? i.category} · ${i.unit}`,
+              group: i.category,
+              searchText: `${i.name} ${cat ?? ''} ${i.unit}`,
+            }
+          })}
+        groups={INGREDIENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
+        onClose={() => setAddIngredientOpen(false)}
+        onSelect={(ingredientId) => {
+          const ing = ingById.get(ingredientId)
+          if (!ing) return
+          const row = defaultUsageRow(ingredientId, 0, pantry, ing.unit)
+          updateDish(activeIdx, { usage: [...(dish.usage ?? []), row] })
+          setAddIngredientOpen(false)
+        }}
+      />
     </div>
   )
 }

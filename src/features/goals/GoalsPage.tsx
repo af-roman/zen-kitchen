@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import type { Goals } from '@/domain/types'
+import { appAlert } from '@/shared/dialog'
 import { Button, Field, PageHeader, inputClass } from '@/shared/ui'
 import { MacroBar } from '@/shared/MacroBar'
 import { emptyNutrition } from '@/domain/nutrition'
@@ -15,7 +16,7 @@ export function GoalsPage() {
   async function save(next: Goals) {
     const total = next.carbsPct + next.proteinPct + next.fatPct
     if (total !== 100) {
-      alert('Macro percentages must add up to 100.')
+      await appAlert('Macro percentages must add up to 100.', { title: 'Cannot save' })
       return
     }
     await db.goals.put(next)

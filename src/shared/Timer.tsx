@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '@/domain/nutrition'
-import { Button } from './ui'
+import { Button, inputClass } from './ui'
 
 function playAlarm() {
   try {
@@ -30,6 +30,10 @@ function playAlarm() {
   } catch {
     // Audio may be blocked
   }
+}
+
+function clampSeconds(total: number): number {
+  return Math.max(0, Math.round(total))
 }
 
 export function CookTimer({
@@ -71,15 +75,50 @@ export function CookTimer({
     }
   }, [running])
 
+  const minutes = Math.floor(remaining / 60)
+  const seconds = remaining % 60
+
+  function setFromParts(nextMin: number, nextSec: number) {
+    const m = Math.max(0, Math.floor(nextMin) || 0)
+    const s = Math.max(0, Math.min(59, Math.floor(nextSec) || 0))
+    setRemaining(clampSeconds(m * 60 + s))
+    setAlarm(false)
+  }
+
   return (
     <div
       className={`mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-paper px-3 py-2 ${
         running ? 'timer-active' : ''
       } ${alarm ? 'border-warn bg-warn/10' : ''}`}
     >
-      <div className="font-display text-lg tabular-nums text-accent-deep">
-        {formatDuration(remaining)}
-      </div>
+      {running ? (
+        <div className="font-display text-lg tabular-nums text-accent-deep">
+          {formatDuration(remaining)}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1">
+          <input
+            className={`${inputClass} !w-14 !px-2 !py-1 text-center tabular-nums`}
+            type="number"
+            min={0}
+            inputMode="numeric"
+            aria-label="Minutes"
+            value={minutes}
+            onChange={(e) => setFromParts(Number(e.target.value), seconds)}
+          />
+          <span className="font-display text-lg text-accent-deep">:</span>
+          <input
+            className={`${inputClass} !w-14 !px-2 !py-1 text-center tabular-nums`}
+            type="number"
+            min={0}
+            max={59}
+            inputMode="numeric"
+            aria-label="Seconds"
+            value={seconds}
+            onChange={(e) => setFromParts(minutes, Number(e.target.value))}
+          />
+        </div>
+      )}
       {label ? <span className="text-xs text-ink-muted">{label}</span> : null}
       <div className="ml-auto flex gap-1">
         {!running ? (

@@ -7,7 +7,7 @@ const links = [
   { to: '/log', label: 'Cook log', hint: 'Past cooking sessions' },
   { to: '/notebook', label: 'Notebook', hint: 'Nutrition at a glance' },
   { to: '/goals', label: 'Kitchen goals', hint: 'Daily energy and macros' },
-  { to: '/backup', label: 'Backup', hint: 'Export and restore your data' },
+  { to: '/backup', label: 'Backup & sync', hint: 'Cloud sync, export, and restore' },
 ]
 
 export function MorePage() {

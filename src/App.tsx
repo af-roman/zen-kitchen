@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { routerBasename } from '@/shared/assetUrl'
 import { DialogProvider } from '@/shared/dialog'
+import { SyncProvider } from '@/sync/SyncProvider'
 import { Bootstrap } from './app/Bootstrap'
 import { AppShell } from './app/AppShell'
 import { PlanPage } from './features/plan/PlanPage'
@@ -25,32 +26,34 @@ export default function App() {
   return (
     <DialogProvider>
       <Bootstrap>
-        <BrowserRouter basename={routerBasename()}>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route index element={<PlanPage />} />
-              <Route path="plan/:date" element={<DayDetailPage />} />
-              <Route path="serve" element={<ServePage />} />
-              <Route path="ready" element={<ReadyPage />} />
-              <Route path="recipes/new" element={<RecipeEditPage />} />
-              <Route path="recipes/:id/edit" element={<RecipeEditPage />} />
-              <Route path="recipes" element={<RecipesPage />}>
-                <Route path=":id" element={<RecipeDetailPage />} />
+        <SyncProvider>
+          <BrowserRouter basename={routerBasename()}>
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route index element={<PlanPage />} />
+                <Route path="plan/:date" element={<DayDetailPage />} />
+                <Route path="serve" element={<ServePage />} />
+                <Route path="ready" element={<ReadyPage />} />
+                <Route path="recipes/new" element={<RecipeEditPage />} />
+                <Route path="recipes/:id/edit" element={<RecipeEditPage />} />
+                <Route path="recipes" element={<RecipesPage />}>
+                  <Route path=":id" element={<RecipeDetailPage />} />
+                </Route>
+                <Route path="pantry" element={<PantryPage />} />
+                <Route path="more" element={<MorePage />} />
+                <Route path="ingredients" element={<IngredientsPage />} />
+                <Route path="shopping" element={<ShoppingPage />} />
+                <Route path="log" element={<CookLogPage />} />
+                <Route path="goals" element={<GoalsPage />} />
+                <Route path="backup" element={<BackupPage />} />
+                <Route path="notebook" element={<NotebookPage />} />
+                <Route path="sessions/new" element={<SessionPlanPage />} />
+                <Route path="cook/:id" element={<CookPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
-              <Route path="pantry" element={<PantryPage />} />
-              <Route path="more" element={<MorePage />} />
-              <Route path="ingredients" element={<IngredientsPage />} />
-              <Route path="shopping" element={<ShoppingPage />} />
-              <Route path="log" element={<CookLogPage />} />
-              <Route path="goals" element={<GoalsPage />} />
-              <Route path="backup" element={<BackupPage />} />
-              <Route path="notebook" element={<NotebookPage />} />
-              <Route path="sessions/new" element={<SessionPlanPage />} />
-              <Route path="cook/:id" element={<CookPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
+            </Routes>
+          </BrowserRouter>
+        </SyncProvider>
       </Bootstrap>
     </DialogProvider>
   )

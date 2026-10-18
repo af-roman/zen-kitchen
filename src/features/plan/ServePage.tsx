@@ -43,6 +43,7 @@ import { useGoals } from '@/shared/hooks'
 import { MacroBar, MacroInline } from '@/shared/MacroBar'
 import { Sheet } from '@/shared/Sheet'
 import { appAlert, appConfirm } from '@/shared/dialog'
+import { DateField, NumberField, SelectField } from '@/shared/forms'
 import { Badge, Button, Field, PageHeader, RemoveButton, WarnBanner, inputClass } from '@/shared/ui'
 
 type AdhocUsageLine = NonNullable<ServingItem['usage']>[number]
@@ -350,32 +351,24 @@ export function ServePage() {
           on <span className="font-medium text-accent-deep">{date}</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Day">
-            <input
-              className={inputClass}
-              type="date"
-              min={today}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
+            <DateField title="Day" value={date} min={today} onChange={setDate} />
           </Field>
           <Field label="Meal to edit">
-            <select
-              className={inputClass}
+            <SelectField
+              title="Meal to edit"
               value={meal}
-              onChange={(e) => setMeal(e.target.value as MealSlot)}
-            >
-              {MEAL_SLOTS.map((m) => {
+              onChange={setMeal}
+              options={MEAL_SLOTS.map((m) => {
                 const taken = dayServings.some((s) => s.meal === m.id)
-                return (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                    {taken ? ' (planned)' : ' (missing)'}
-                  </option>
-                )
+                return {
+                  id: m.id,
+                  label: m.label,
+                  detail: taken ? 'Planned' : 'Missing',
+                }
               })}
-            </select>
+            />
           </Field>
         </div>
 
@@ -548,17 +541,17 @@ export function ServePage() {
                       </div>
                     ) : null}
                     <Field label="Portions to serve">
-                      <input
-                        className={inputClass}
-                        type="number"
+                      <NumberField
+                        value={portions}
                         min={0}
                         max={b.portionsLeft}
-                        value={portions || ''}
-                        onChange={(e) =>
+                        step={1}
+                        inputMode="numeric"
+                        onChange={(nextPortions) =>
                           setPick({
                             kind: 'batch',
                             batchId: b.id!,
-                            portions: Number(e.target.value),
+                            portions: nextPortions,
                           })
                         }
                       />
@@ -611,18 +604,18 @@ export function ServePage() {
                       </div>
                     ) : null}
                     <Field label="Portions to serve">
-                      <input
-                        className={inputClass}
-                        type="number"
+                      <NumberField
+                        value={portions}
                         min={0}
                         max={p.portionsLeft}
-                        value={portions || ''}
-                        onChange={(e) =>
+                        step={1}
+                        inputMode="numeric"
+                        onChange={(nextPortions) =>
                           setPick({
                             kind: 'planned',
                             sessionId: p.sessionId,
                             recipeId: p.recipeId,
-                            portions: Number(e.target.value),
+                            portions: nextPortions,
                           })
                         }
                       />
@@ -683,17 +676,17 @@ export function ServePage() {
                     </div>
                   ) : null}
                   <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <div className="w-28">
+                    <div className="w-36">
                       <Field label="Portions">
-                        <input
-                          className={inputClass}
-                          type="number"
+                        <NumberField
+                          value={pick.portions}
                           min={0}
-                          value={pick.portions || ''}
-                          onChange={(e) =>
+                          step={1}
+                          inputMode="numeric"
+                          onChange={(portions) =>
                             setPick({
                               ...pick,
-                              portions: Number(e.target.value),
+                              portions,
                             })
                           }
                         />
@@ -942,53 +935,45 @@ function AdhocFoodSheet({
           />
         </Field>
         <Field label="Portions">
-          <input
-            className={inputClass}
-            type="number"
-            min={1}
+          <NumberField
             value={portions}
-            onChange={(e) => setPortions(Number(e.target.value))}
+            min={1}
+            step={1}
+            inputMode="numeric"
+            onChange={setPortions}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Energy (kcal)">
-            <input
-              className={inputClass}
-              type="number"
+            <NumberField
+              value={nutrition.energyKcal}
               min={0}
               step={1}
-              value={nutrition.energyKcal || ''}
-              onChange={(e) => updateMacro('energyKcal', Number(e.target.value))}
+              onChange={(n) => updateMacro('energyKcal', n)}
             />
           </Field>
           <Field label="Protein (g)">
-            <input
-              className={inputClass}
-              type="number"
+            <NumberField
+              value={nutrition.proteinG}
               min={0}
               step={0.1}
-              value={nutrition.proteinG || ''}
-              onChange={(e) => updateMacro('proteinG', Number(e.target.value))}
+              onChange={(n) => updateMacro('proteinG', n)}
             />
           </Field>
           <Field label="Carbs (g)">
-            <input
-              className={inputClass}
-              type="number"
+            <NumberField
+              value={nutrition.carbsG}
               min={0}
               step={0.1}
-              value={nutrition.carbsG || ''}
-              onChange={(e) => updateMacro('carbsG', Number(e.target.value))}
+              onChange={(n) => updateMacro('carbsG', n)}
             />
           </Field>
           <Field label="Fat (g)">
-            <input
-              className={inputClass}
-              type="number"
+            <NumberField
+              value={nutrition.fatG}
               min={0}
               step={0.1}
-              value={nutrition.fatG || ''}
-              onChange={(e) => updateMacro('fatG', Number(e.target.value))}
+              onChange={(n) => updateMacro('fatG', n)}
             />
           </Field>
         </div>
@@ -1023,11 +1008,10 @@ function AdhocFoodSheet({
                   return (
                     <div key={idx} className="space-y-2 rounded-lg border border-line p-2">
                       <Field label="Ingredient">
-                        <select
-                          className={inputClass}
+                        <SelectField<number>
+                          title="Ingredient"
                           value={line.ingredientId}
-                          onChange={(e) => {
-                            const ingredientId = Number(e.target.value)
+                          onChange={(ingredientId) => {
                             const nextCandidates = pantry.filter(
                               (p) => p.ingredientId === ingredientId && p.amountLeft > 0,
                             )
@@ -1039,48 +1023,39 @@ function AdhocFoodSheet({
                             }
                             setUsage(next)
                           }}
-                        >
-                          {ingredients.map((i) => (
-                            <option key={i.id} value={i.id}>
-                              {i.name}
-                            </option>
-                          ))}
-                        </select>
+                          options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
+                        />
                       </Field>
                       <Field label="Pantry item">
-                        <select
-                          className={inputClass}
+                        <SelectField<number>
+                          title="Pantry item"
                           value={line.pantryItemId}
-                          onChange={(e) => {
+                          onChange={(pantryItemId) => {
                             const next = [...usage]
-                            next[idx] = { ...line, pantryItemId: Number(e.target.value) }
+                            next[idx] = { ...line, pantryItemId }
                             setUsage(next)
                           }}
-                        >
-                          {candidates.length === 0 ? (
-                            <option value={0}>No stock</option>
-                          ) : (
-                            candidates.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.brand || 'Unbranded'} · {c.amountLeft} {ing?.unit}
-                              </option>
-                            ))
-                          )}
-                        </select>
+                          options={
+                            candidates.length === 0
+                              ? [{ id: 0, label: 'No stock' }]
+                              : candidates.map((c) => ({
+                                  id: c.id!,
+                                  label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit}`,
+                                }))
+                          }
+                        />
                       </Field>
                       <Field label={`Amount used (${ing?.unit ?? ''})`}>
-                        <input
-                          className={inputClass}
-                          type="number"
+                        <NumberField
+                          value={line.amountUsed}
                           min={0}
                           step={0.1}
                           max={
                             pantry.find((p) => p.id === line.pantryItemId)?.amountLeft ?? undefined
                           }
-                          value={line.amountUsed || ''}
-                          onChange={(e) => {
+                          onChange={(amountUsed) => {
                             const next = [...usage]
-                            next[idx] = { ...line, amountUsed: Number(e.target.value) }
+                            next[idx] = { ...line, amountUsed }
                             setUsage(next)
                           }}
                         />

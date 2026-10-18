@@ -95,7 +95,7 @@ export function BackupPage() {
   return (
     <div>
       <PageHeader
-        title="Backup"
+        title="Backup & sync"
         subtitle="Cloud sync across your devices, or export a full JSON snapshot."
       />
       <WarnBanner>

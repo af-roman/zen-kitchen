@@ -25,6 +25,7 @@ import {
 } from '@/domain/stages'
 import { stageLegsFor, syncStageLegs, withChainIds } from '@/db/sessionChains'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
+import { DateField, NumberField } from '@/shared/forms'
 import { Badge, Button, Field, PageHeader, RemoveButton, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -256,13 +257,12 @@ export function SessionPlanPage() {
         ) : null}
 
         <Field label={isLegSession ? 'Prep date' : 'Date'}>
-          <input
-            className={inputClass}
-            type="date"
-            min={today}
+          <DateField
+            title={isLegSession ? 'Prep date' : 'Cook date'}
             value={date}
+            min={today}
             disabled={dateLocked || isLegSession}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={setDate}
           />
         </Field>
         <section>
@@ -285,12 +285,12 @@ export function SessionPlanPage() {
               const qtyLabel = quantityNoun(selected, 2)
               return (
                 <div key={idx} className="space-y-1">
-                  <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex min-w-0 flex-wrap items-end gap-2">
                     <button
                       type="button"
                       disabled={dateLocked}
                       onClick={() => setRecipePicker(idx)}
-                      className={`${inputClass} min-w-0 flex-1 text-left disabled:opacity-40`}
+                      className={`${inputClass} min-w-0 flex-1 basis-[12rem] text-left disabled:opacity-40`}
                     >
                       <span className="block truncate font-medium">
                         {selected?.name ?? 'Choose recipe'}
@@ -307,17 +307,17 @@ export function SessionPlanPage() {
                         <span className="block text-xs text-ink-muted">Tap to search</span>
                       )}
                     </button>
-                    <div className="w-28 shrink-0">
+                    <div className="w-36 shrink-0">
                       <Field label={qtyLabel}>
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min={1}
+                        <NumberField
                           value={dish.portions}
+                          min={1}
+                          step={1}
+                          inputMode="numeric"
                           disabled={dateLocked}
-                          onChange={(e) => {
+                          onChange={(portions) => {
                             const next = [...dishes]
-                            next[idx] = { ...dish, portions: Number(e.target.value) }
+                            next[idx] = { ...dish, portions }
                             setDishes(next)
                           }}
                         />
@@ -471,7 +471,7 @@ export function SessionPlanPage() {
         <div className="space-y-3">
           <p className="text-sm text-ink-muted">
             {savedOffer?.canServe
-              ? 'Next you’ll cook this session. You can optionally pre-assign dish portions to meals now — or serve after cooking.'
+              ? 'Next you’ll cook this session. Assign portions to meals now, or do it after cooking from Ready.'
               : 'Prep in this session will go to the pantry when you finish cooking.'}
           </p>
           {savedOffer?.legDates.length ? (
@@ -483,24 +483,24 @@ export function SessionPlanPage() {
           {savedOffer?.canServe ? (
             <Button
               className="w-full"
-              variant="secondary"
               onClick={() => {
                 const id = savedOffer.id
                 setSavedOffer(null)
                 navigate(`/serve?sessionId=${id}`)
               }}
             >
-              Pre-assign meals (optional)
+              Assign to meals
             </Button>
           ) : null}
           <Button
             className="w-full"
+            variant={savedOffer?.canServe ? 'secondary' : 'primary'}
             onClick={() => {
               setSavedOffer(null)
               navigate('/')
             }}
           >
-            Back to week
+            Done
           </Button>
         </div>
       </Sheet>

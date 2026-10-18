@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
@@ -14,6 +14,7 @@ import { formatExpiryLabel } from '@/domain/servings'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appConfirm } from '@/shared/dialog'
 import { assetUrl } from '@/shared/assetUrl'
+import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -21,6 +22,7 @@ type StockFilter = 'all' | 'in' | 'low' | 'out'
 type SortKey = 'name' | 'amount' | 'expiry'
 
 export function PantryPage() {
+  const navigate = useNavigate()
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
   const items = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
   const byId = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
@@ -98,37 +100,48 @@ export function PantryPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          className={inputClass}
+        <SelectField
+          title="Category"
           value={category}
-          onChange={(e) => setCategory(e.target.value as IngredientCategory | 'all')}
-        >
-          <option value="all">All categories</option>
-          {INGREDIENT_CATEGORIES.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <select
-          className={inputClass}
+          onChange={setCategory}
+          options={[
+            { id: 'all', label: 'All categories' },
+            ...INGREDIENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+          ]}
+        />
+        <SelectField
+          title="Stock"
           value={stock}
-          onChange={(e) => setStock(e.target.value as StockFilter)}
-        >
-          <option value="all">Any stock</option>
-          <option value="in">In stock</option>
-          <option value="low">Low stock</option>
-          <option value="out">Out of stock</option>
-        </select>
-        <select className={inputClass} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-          <option value="name">Sort A–Z</option>
-          <option value="amount">Sort by amount</option>
-          <option value="expiry">Sort by expiry</option>
-        </select>
+          onChange={setStock}
+          options={[
+            { id: 'all', label: 'Any stock' },
+            { id: 'in', label: 'In stock' },
+            { id: 'low', label: 'Low stock' },
+            { id: 'out', label: 'Out of stock' },
+          ]}
+        />
+        <SelectField
+          title="Sort"
+          value={sort}
+          onChange={setSort}
+          options={[
+            { id: 'name', label: 'Sort A–Z' },
+            { id: 'amount', label: 'Sort by amount' },
+            { id: 'expiry', label: 'Sort by expiry' },
+          ]}
+        />
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="Pantry is empty" body="Add a pantry item or record a restock from Shopping." />
+        <EmptyState
+          title="Pantry is empty"
+          body="Add a pantry item here, or mark a purchase under Shop."
+          actions={
+            <Button variant="secondary" onClick={() => navigate('/shopping')}>
+              Open Shop
+            </Button>
+          }
+        />
       ) : (
         <ul className="space-y-3">
           {filtered.map(({ item, ing }) => {
@@ -271,45 +284,37 @@ function PantryItemSheet({
           <WarnBanner>Add ingredients in the Ingredient library first.</WarnBanner>
         ) : null}
         <Field label="Ingredient">
-          <select
-            className={inputClass}
+          <SelectField
+            title="Ingredient"
             value={editing ? editing.ingredientId : ingredientId}
             disabled={Boolean(editing)}
-            onChange={(e) => setIngredientId(Number(e.target.value))}
-          >
-            {ingredients.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name}
-              </option>
-            ))}
-          </select>
+            onChange={setIngredientId}
+            options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
+          />
         </Field>
         <ImageUploadField value={imageDataUrl} onChange={setImageDataUrl} />
         <Field label="Brand">
           <input className={inputClass} value={brand} onChange={(e) => setBrand(e.target.value)} />
         </Field>
         <Field label={`Amount left (${ing?.unit ?? 'unit'})`}>
-          <input
-            className={inputClass}
-            type="number"
-            value={amountLeft}
-            onChange={(e) => setAmountLeft(Number(e.target.value))}
-          />
+          <NumberField value={amountLeft} min={0} step={1} onChange={setAmountLeft} />
         </Field>
         <Field label="Expiry date">
-          <input
-            className={inputClass}
-            type="date"
+          <DateField
             value={expiryDate}
-            onChange={(e) => setExpiryDate(e.target.value)}
+            onChange={setExpiryDate}
+            title="Expiry date"
+            allowEmpty
+            emptyLabel="No expiry"
           />
         </Field>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} />
-          Override nutrition for this product
-        </label>
+        <Checkbox
+          checked={override}
+          onChange={setOverride}
+          label="Override nutrition for this product"
+        />
         {override ? (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {(
               [
                 ['energyKcal', 'Energy'],
@@ -319,11 +324,11 @@ function PantryItemSheet({
               ] as const
             ).map(([key, label]) => (
               <Field key={key} label={label}>
-                <input
-                  className={inputClass}
-                  type="number"
+                <NumberField
                   value={nutrition[key]}
-                  onChange={(e) => setNutrition({ ...nutrition, [key]: Number(e.target.value) })}
+                  min={0}
+                  step={0.1}
+                  onChange={(n) => setNutrition({ ...nutrition, [key]: n })}
                 />
               </Field>
             ))}

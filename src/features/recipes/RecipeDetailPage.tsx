@@ -151,9 +151,6 @@ export function RecipeDetailPage() {
           Edit
         </Button>
       </div>
-      <Button variant="danger" className="mb-4 w-full" onClick={() => void remove()}>
-        Delete recipe
-      </Button>
 
       {!avail.cookable ? (
         <div className="mb-4">
@@ -347,6 +344,10 @@ export function RecipeDetailPage() {
         storageEnv={r.storageEnv}
         storageInstructions={r.storageInstructions}
       />
+
+      <Button variant="ghost" className="mt-6 w-full text-danger" onClick={() => void remove()}>
+        Delete recipe
+      </Button>
     </Sheet>
     <StepImageGallery
       open={galleryStartId != null}

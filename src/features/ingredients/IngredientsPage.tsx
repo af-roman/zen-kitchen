@@ -11,6 +11,7 @@ import {
 import { gramsPerMlFromTbsp, gramsPerTbspFromMl } from '@/domain/measures'
 import { isAlwaysAvailable } from '@/domain/kitchen'
 import { appAlert, appConfirm } from '@/shared/dialog'
+import { NumberField, SelectField } from '@/shared/forms'
 import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -129,18 +130,15 @@ export function IngredientsPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select
-          className={inputClass}
+        <SelectField
+          title="Category"
           value={category}
-          onChange={(e) => setCategory(e.target.value as IngredientCategory | 'all')}
-        >
-          <option value="all">All categories</option>
-          {INGREDIENT_CATEGORIES.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+          onChange={setCategory}
+          options={[
+            { id: 'all', label: 'All categories' },
+            ...INGREDIENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+          ]}
+        />
       </div>
       {filtered.length === 0 ? (
         <EmptyState title="No ingredients" body="Add your first ingredient to get started." />
@@ -199,39 +197,33 @@ export function IngredientsPage() {
             />
           </Field>
           <Field label="Category">
-            <select
-              className={inputClass}
+            <SelectField
+              title="Category"
               value={form.category}
-              onChange={(e) =>
-                setForm({ ...form, category: e.target.value as IngredientCategory })
-              }
-            >
-              {INGREDIENT_CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+              onChange={(category) => setForm({ ...form, category })}
+              options={INGREDIENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
+            />
           </Field>
           <Field label="Unit">
-            <select
-              className={inputClass}
+            <SelectField
+              title="Unit"
               value={form.unit}
               disabled={Boolean(editing?.alwaysAvailable)}
-              onChange={(e) => setForm({ ...form, unit: e.target.value as Unit })}
-            >
-              <option value="g">grams (g)</option>
-              <option value="ml">millilitres (ml)</option>
-              <option value="pcs">pieces (pcs)</option>
-            </select>
+              onChange={(unit) => setForm({ ...form, unit })}
+              options={[
+                { id: 'g', label: 'grams (g)' },
+                { id: 'ml', label: 'millilitres (ml)' },
+                { id: 'pcs', label: 'pieces (pcs)' },
+              ]}
+            />
           </Field>
           {form.unit === 'pcs' && !editing?.alwaysAvailable ? (
             <Field label="Average weight per piece (g)">
-              <input
-                className={inputClass}
-                type="number"
+              <NumberField
                 value={form.avgPieceGrams}
-                onChange={(e) => setForm({ ...form, avgPieceGrams: Number(e.target.value) })}
+                min={0}
+                step={1}
+                onChange={(avgPieceGrams) => setForm({ ...form, avgPieceGrams })}
               />
             </Field>
           ) : null}
@@ -240,14 +232,11 @@ export function IngredientsPage() {
               label="Grams per tablespoon (optional)"
               hint="Lets recipes use tsp/tbsp for this solid. Stock stays in grams."
             >
-              <input
-                className={inputClass}
-                type="number"
+              <NumberField
+                value={form.gramsPerTbsp || 0}
                 min={0}
-                step="0.1"
-                value={form.gramsPerTbsp || ''}
-                placeholder="e.g. 18 for salt"
-                onChange={(e) => setForm({ ...form, gramsPerTbsp: Number(e.target.value) })}
+                step={0.1}
+                onChange={(gramsPerTbsp) => setForm({ ...form, gramsPerTbsp })}
               />
             </Field>
           ) : null}
@@ -256,7 +245,7 @@ export function IngredientsPage() {
               <p className="text-xs text-ink-muted">
                 Nutrition per 100{form.unit === 'ml' ? 'ml' : 'g'}
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {(
                   [
                     ['energyKcal', 'Energy (kcal)'],
@@ -266,12 +255,11 @@ export function IngredientsPage() {
                   ] as const
                 ).map(([key, label]) => (
                   <Field key={key} label={label}>
-                    <input
-                      className={inputClass}
-                      type="number"
-                      step="0.1"
+                    <NumberField
                       value={form[key]}
-                      onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })}
+                      min={0}
+                      step={0.1}
+                      onChange={(n) => setForm({ ...form, [key]: n })}
                     />
                   </Field>
                 ))}
@@ -280,11 +268,11 @@ export function IngredientsPage() {
                 label="Low-stock threshold"
                 hint="Warn when total pantry amount falls to this or below."
               >
-                <input
-                  className={inputClass}
-                  type="number"
+                <NumberField
                   value={form.lowStockThreshold}
-                  onChange={(e) => setForm({ ...form, lowStockThreshold: Number(e.target.value) })}
+                  min={0}
+                  step={1}
+                  onChange={(lowStockThreshold) => setForm({ ...form, lowStockThreshold })}
                 />
               </Field>
             </>

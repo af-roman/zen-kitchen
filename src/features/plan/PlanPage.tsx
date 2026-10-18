@@ -141,7 +141,12 @@ export function PlanPage() {
         title="Plan"
         subtitle="See what’s cooking and eating — open a day to act."
         actions={
-          <Button onClick={() => navigate(`/sessions/new?date=${today}`)}>Plan session</Button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button variant="secondary" onClick={() => navigate(`/serve?date=${today}`)}>
+              Serve meals
+            </Button>
+            <Button onClick={() => navigate(`/sessions/new?date=${today}`)}>Plan session</Button>
+          </div>
         }
       />
 
@@ -325,7 +330,15 @@ export function PlanPage() {
         <div className="mt-6">
           <EmptyState
             title="A quiet stretch"
-            body="Plan a cooking session, then open a day to serve meals."
+            body="Plan a cooking session, then serve meals through the week."
+            actions={
+              <>
+                <Button onClick={() => navigate(`/sessions/new?date=${today}`)}>Plan session</Button>
+                <Button variant="secondary" onClick={() => navigate(`/serve?date=${today}`)}>
+                  Serve meals
+                </Button>
+              </>
+            }
           />
         </div>
       ) : null}

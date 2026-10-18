@@ -183,18 +183,24 @@ export function DayDetailPage() {
         />
       </section>
 
+      {!past ? (
+        <div className="mb-5 flex flex-wrap gap-2">
+          <Button className="flex-1" onClick={() => navigate(`/sessions/new?date=${date}`)}>
+            Plan session
+          </Button>
+          <Button
+            className="flex-1"
+            variant="secondary"
+            onClick={() => navigate(`/serve?date=${date}`)}
+          >
+            Serve
+          </Button>
+        </div>
+      ) : null}
+
       <section className="mb-5">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-lg">Cook</h2>
-          {!past ? (
-            <Button
-              variant="secondary"
-              className="!py-1 !text-xs"
-              onClick={() => navigate(`/sessions/new?date=${date}`)}
-            >
-              Plan session
-            </Button>
-          ) : null}
         </div>
         {sessions.length === 0 ? (
           <p className="text-sm text-ink-muted">No cooking sessions on this day.</p>
@@ -272,15 +278,6 @@ export function DayDetailPage() {
       <section className="mb-5">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-lg">Eat</h2>
-          {!past ? (
-            <Button
-              variant="secondary"
-              className="!py-1 !text-xs"
-              onClick={() => navigate(`/serve?date=${date}`)}
-            >
-              Serve
-            </Button>
-          ) : null}
         </div>
         <div className="space-y-2">
           {MEAL_SLOTS.map((slot) => {
@@ -335,80 +332,38 @@ export function DayDetailPage() {
         </div>
       </section>
 
-      <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
-        <h2 className="mb-1 text-lg">Nutrition</h2>
-        <p className="mb-4 text-xs text-ink-muted">
-          Dishes, meals, and the day — so you can see the balance at a glance.
-        </p>
-
-        <div className="space-y-4">
-          <div>
-            <h3 className="mb-2 text-sm font-medium text-ink">Dishes</h3>
-            {dishRows.length === 0 ? (
-              <p className="text-sm text-ink-muted">No dishes served yet.</p>
-            ) : (
-              <ul className="space-y-2">
-                {dishRows.map((row) => (
-                  <li
-                    key={row.key}
-                    className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-line px-3 py-2"
-                  >
-                    <span className="text-sm">
-                      <span className="text-ink-muted">{row.mealLabel} · </span>
-                      {row.label} ×{row.portions}
-                      {row.adhoc ? (
-                        <span className="ml-1.5 align-middle">
-                          <Badge>Other</Badge>
-                        </span>
-                      ) : null}
-                      {row.broken ? (
-                        <span className="ml-1.5 align-middle">
-                          <Badge tone="warn">Needs food</Badge>
-                        </span>
-                      ) : null}
+      {dishRows.length > 0 ? (
+        <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+          <h2 className="mb-1 text-lg">Dish breakdown</h2>
+          <p className="mb-4 text-xs text-ink-muted">
+            Each dish on this day — meal totals are under Eat above.
+          </p>
+          <ul className="space-y-2">
+            {dishRows.map((row) => (
+              <li
+                key={row.key}
+                className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-line px-3 py-2"
+              >
+                <span className="text-sm">
+                  <span className="text-ink-muted">{row.mealLabel} · </span>
+                  {row.label} ×{row.portions}
+                  {row.adhoc ? (
+                    <span className="ml-1.5 align-middle">
+                      <Badge>Other</Badge>
                     </span>
-                    <MacroInline nutrition={row.nutrition} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="border-t border-line pt-4">
-            <h3 className="mb-2 text-sm font-medium text-ink">Meals</h3>
-            <ul className="space-y-1.5">
-              {MEAL_SLOTS.map((slot) => {
-                const m = servings.find((s) => s.meal === slot.id)
-                const slotN = m
-                  ? mealNutritionFromItems(m.items, recipeById, ingById)
-                  : emptyNutrition()
-                return (
-                  <li
-                    key={slot.id}
-                    className="flex flex-wrap items-baseline justify-between gap-2 text-sm"
-                  >
-                    <span className="text-ink-muted">{slot.label}</span>
-                    {m ? (
-                      <MacroInline nutrition={slotN} goals={goals} />
-                    ) : (
-                      <span className="text-xs text-ink-muted">—</span>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-
-          <div className="border-t border-line pt-4">
-            <h3 className="mb-2 text-sm font-medium text-ink">Whole day</h3>
-            <MacroBar
-              nutrition={dayNutrition}
-              goals={goals}
-              goalCaption="Full day vs your daily targets"
-            />
-          </div>
-        </div>
-      </section>
+                  ) : null}
+                  {row.broken ? (
+                    <span className="ml-1.5 align-middle">
+                      <Badge tone="warn">Needs food</Badge>
+                    </span>
+                  ) : null}
+                </span>
+                <MacroInline nutrition={row.nutrition} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {sessions.length === 0 && servings.length === 0 ? (
         <EmptyState
@@ -417,6 +372,16 @@ export function DayDetailPage() {
             past
               ? 'This day has no sessions or meals on record.'
               : 'Plan a cooking session or serve meals for this day.'
+          }
+          actions={
+            past ? undefined : (
+              <>
+                <Button onClick={() => navigate(`/sessions/new?date=${date}`)}>Plan session</Button>
+                <Button variant="secondary" onClick={() => navigate(`/serve?date=${date}`)}>
+                  Serve
+                </Button>
+              </>
+            )
           }
         />
       ) : null}

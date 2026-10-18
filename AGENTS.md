@@ -39,7 +39,7 @@ Cross-device sync is **full-kitchen JSON snapshots** (same shape as Backup expor
 
 ## UX priorities (when improving the app)
 
-Highest leverage before AI features: week-fill from cook sessions, shopping from session shortfalls, softer “quick recipe” create. See product discussion in chat history if relevant.
+Primary nav: **Plan · Ready · Shop · Recipes · More** (Pantry lives under More). Surface Serve from Plan/Ready/day. Prefer week-fill after sessions and shopping from shortfalls before AI features.
 
 ## Commands
 

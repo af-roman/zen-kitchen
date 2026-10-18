@@ -62,6 +62,7 @@ import {
 } from '@/shared/StepImageGallery'
 import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
 import { appAlert, appConfirm } from '@/shared/dialog'
+import { Checkbox, NumberField, SelectField } from '@/shared/forms'
 import {
   AutoTextarea,
   Badge,
@@ -70,7 +71,6 @@ import {
   PageHeader,
   RemoveButton,
   WarnBanner,
-  inputClass,
 } from '@/shared/ui'
 
 type UsageRow = {
@@ -95,8 +95,6 @@ export function CookPage() {
   const [activeIdx, setActiveIdx] = useState(0)
   const [localDishes, setLocalDishes] = useState<SessionDishPlan[] | null>(null)
   const [sessionNotes, setSessionNotes] = useState('')
-  /** Only auto-start a planned session once per page visit — not after Cancel. */
-  const didAutoStart = useRef(false)
 
   useEffect(() => {
     if (!session) return
@@ -116,20 +114,13 @@ export function CookPage() {
     return () => window.clearTimeout(t)
   }, [localDishes, sessionNotes, sessionId, session])
 
-  useEffect(() => {
-    if (!session) return
-    if (session.status === 'active') {
-      didAutoStart.current = true
-      return
-    }
-    if (session.status !== 'planned' || didAutoStart.current) return
-    didAutoStart.current = true
-    void db.cookingSessions.update(sessionId, {
+  async function startCooking() {
+    await db.cookingSessions.update(sessionId, {
       status: 'active',
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
-  }, [session, sessionId])
+  }
 
   const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id!, r])), [recipes])
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
@@ -154,6 +145,7 @@ export function CookPage() {
       pantry={pantry}
       goals={goals}
       navigate={navigate}
+      onStartCooking={() => void startCooking()}
     />
   )
 }
@@ -219,6 +211,7 @@ function CookSessionView({
   pantry,
   goals,
   navigate,
+  onStartCooking,
 }: {
   session: CookingSession
   sessionId: number
@@ -234,6 +227,7 @@ function CookSessionView({
   pantry: PantryItem[]
   goals: Goals
   navigate: ReturnType<typeof useNavigate>
+  onStartCooking: () => void
 }) {
   const finishPrompted = useRef(false)
   const [finishNext, setFinishNext] = useState<{
@@ -581,7 +575,7 @@ function CookSessionView({
               </Button>
             ) : null}
             <Button className="w-full" variant="ghost" onClick={() => navigate('/')}>
-              Back to week
+              Back to plan
             </Button>
           </div>
         </Sheet>
@@ -591,6 +585,44 @@ function CookSessionView({
 
   if (!recipe || !dish) {
     return <p className="text-ink-muted">No recipes in this session.</p>
+  }
+
+  if (session.status === 'planned') {
+    return (
+      <div>
+        <PageHeader
+          title="Cook session"
+          subtitle={`Planned for ${session.date}`}
+          actions={
+            <Button variant="secondary" onClick={() => navigate('/')}>
+              Back
+            </Button>
+          }
+        />
+        <p className="mb-4 text-sm text-ink-muted">
+          Review what’s in this session, then start when you’re ready at the counter.
+        </p>
+        <ul className="mb-6 space-y-2">
+          {dishes.map((d, i) => {
+            const r = recipeById.get(d.recipeId)
+            return (
+              <li
+                key={`${d.recipeId}-${dishStage(d)}-${i}`}
+                className="rounded-lg border border-line bg-paper-elevated px-3 py-2 text-sm"
+              >
+                {r?.name ?? 'Recipe'}
+                {isPrepLeg(d) ? ` · ${stageLabel(dishStage(d))}` : ''}
+                {' · '}
+                {formatQuantity(r, d.portions)}
+              </li>
+            )
+          })}
+        </ul>
+        <Button className="w-full" onClick={onStartCooking}>
+          Start cooking
+        </Button>
+      </div>
+    )
   }
 
   const scale = dish.portions / recipe.portions
@@ -617,12 +649,12 @@ function CookSessionView({
         }
         actions={
           <Button variant="secondary" onClick={() => navigate('/')}>
-            Leave
+            Keep session · leave
           </Button>
         }
       />
       <WarnBanner>
-        One session can stay active while you browse — return anytime from the banner.
+        Session stays active while you browse — return anytime from the banner above.
       </WarnBanner>
       {legOfChain ? (
         <p className="mt-2 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
@@ -665,14 +697,13 @@ function CookSessionView({
 
       <div className="mb-4 flex items-end gap-3">
         <Field label={isPrepRecipe(recipe) ? 'Batches for this cook' : 'Portions for this cook'}>
-          <input
-            className={inputClass}
-            type="number"
-            min={1}
+          <NumberField
             value={dish.portions}
+            min={1}
+            step={1}
+            inputMode="numeric"
             disabled={dish.completed}
-            onChange={(e) => {
-              const portions = Number(e.target.value)
+            onChange={(portions) => {
               const scale = portions / recipe.portions
               const recipeIds = new Set(stageLines.map((l) => l.ingredientId))
               const nextUsage: UsageRow[] = []
@@ -773,24 +804,22 @@ function CookSessionView({
                 {always ? (
                   <div className="space-y-2">
                     <p className="text-sm text-ok">Always available — not deducted from the pantry.</p>
-                    <div className="flex gap-2">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_7rem] gap-2">
                       <Field label={`Amount (${measure})`}>
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min={0}
-                          step="0.1"
-                          disabled={dish.completed}
+                        <NumberField
                           value={
                             ing
                               ? fromStockAmount(rows[0]?.amountUsed ?? 0, measure, ing)
                               : rows[0]?.amountUsed ?? 0
                           }
-                          onChange={(e) => {
+                          min={0}
+                          step={0.1}
+                          disabled={dish.completed}
+                          onChange={(shown) => {
                             if (!ing) return
                             let stock = 0
                             try {
-                              stock = toStockAmount(Number(e.target.value), measure, ing)
+                              stock = toStockAmount(shown, measure, ing)
                             } catch {
                               return
                             }
@@ -806,13 +835,13 @@ function CookSessionView({
                         />
                       </Field>
                       <Field label="Unit">
-                        <select
-                          className={inputClass}
+                        <SelectField
+                          title="Unit"
+                          compact
                           disabled={dish.completed || !ing}
                           value={measure}
-                          onChange={(e) => {
+                          onChange={(nextMeasure) => {
                             if (!ing) return
-                            const nextMeasure = e.target.value as MeasureUnit
                             const shown = fromStockAmount(rows[0]?.amountUsed ?? 0, measure, ing)
                             let stock = rows[0]?.amountUsed ?? 0
                             try {
@@ -829,13 +858,8 @@ function CookSessionView({
                               },
                             ])
                           }}
-                        >
-                          {measureOptions.map((u) => (
-                            <option key={u} value={u}>
-                              {u}
-                            </option>
-                          ))}
-                        </select>
+                          options={measureOptions.map((u) => ({ id: u, label: u }))}
+                        />
                       </Field>
                     </div>
                   </div>
@@ -857,12 +881,11 @@ function CookSessionView({
                           className={`space-y-2 ${rowIdx > 0 ? 'mt-3 border-t border-line pt-3' : ''}`}
                         >
                           <Field label="Pantry item">
-                            <select
-                              className={inputClass}
+                            <SelectField<number>
+                              title="Pantry item"
                               disabled={dish.completed}
                               value={row.pantryItemId}
-                              onChange={(e) => {
-                                const pantryItemId = Number(e.target.value)
+                              onChange={(pantryItemId) => {
                                 const next = [...rows]
                                 next[rowIdx] = {
                                   ...row,
@@ -876,36 +899,32 @@ function CookSessionView({
                                 }
                                 updateIngredientUsage(ingredientId, next)
                               }}
-                            >
-                              {candidates.length === 0 ? (
-                                <option value={0}>No stock — add to pantry</option>
-                              ) : (
-                                <>
-                                  <option value={0}>Select pantry item…</option>
-                                  {candidates.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                      {c.brand || 'Unbranded'} · {c.amountLeft} {ing?.unit} left
-                                    </option>
-                                  ))}
-                                </>
-                              )}
-                            </select>
+                              options={
+                                candidates.length === 0
+                                  ? [{ id: 0, label: 'No stock — add to pantry' }]
+                                  : [
+                                      { id: 0, label: 'Select pantry item…' },
+                                      ...candidates.map((c) => ({
+                                        id: c.id!,
+                                        label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit} left`,
+                                      })),
+                                    ]
+                              }
+                            />
                           </Field>
-                          <div className="flex gap-2">
+                          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_7rem] gap-2">
                             <Field label={`Amount used (${measure})`}>
-                              <input
-                                className={inputClass}
-                                type="number"
+                              <NumberField
+                                value={displayAmount}
                                 min={0}
                                 max={maxDisplay}
-                                step="0.1"
+                                step={0.1}
                                 disabled={dish.completed}
-                                value={displayAmount}
-                                onChange={(e) => {
+                                onChange={(shown) => {
                                   if (!ing) return
                                   let stock = 0
                                   try {
-                                    stock = toStockAmount(Number(e.target.value), measure, ing)
+                                    stock = toStockAmount(shown, measure, ing)
                                   } catch {
                                     return
                                   }
@@ -921,26 +940,21 @@ function CookSessionView({
                               />
                             </Field>
                             <Field label="Unit">
-                              <select
-                                className={inputClass}
+                              <SelectField
+                                title="Unit"
+                                compact
                                 disabled={dish.completed || !ing}
                                 value={measure}
-                                onChange={(e) => {
+                                onChange={(nextMeasure) => {
                                   if (!ing) return
-                                  const nextMeasure = e.target.value as MeasureUnit
                                   const next = rows.map((r) => ({
                                     ...r,
                                     measureUnit: nextMeasure,
                                   }))
                                   updateIngredientUsage(ingredientId, next)
                                 }}
-                              >
-                                {measureOptions.map((u) => (
-                                  <option key={u} value={u}>
-                                    {u}
-                                  </option>
-                                ))}
-                              </select>
+                                options={measureOptions.map((u) => ({ id: u, label: u }))}
+                              />
                             </Field>
                           </div>
                           {row.pantryItemId && measure !== ing?.unit ? (
@@ -1041,26 +1055,24 @@ function CookSessionView({
                             />
                           ) : null}
                           <div className="min-w-0 flex-1">
-                            <label className="flex gap-3 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(done)}
-                                disabled={dish.completed}
-                                onChange={(e) => {
-                                  const set = new Set(dish.stepsDone ?? [])
-                                  if (e.target.checked) set.add(step.id)
-                                  else set.delete(step.id)
-                                  updateDish(activeIdx, { stepsDone: [...set] })
-                                }}
-                              />
-                              <span className={done ? 'text-ink-muted line-through' : ''}>
-                                {step.description}
-                              </span>
-                            </label>
+                            <Checkbox
+                              checked={Boolean(done)}
+                              disabled={dish.completed}
+                              onChange={(checked) => {
+                                const set = new Set(dish.stepsDone ?? [])
+                                if (checked) set.add(step.id)
+                                else set.delete(step.id)
+                                updateDish(activeIdx, { stepsDone: [...set] })
+                              }}
+                              label={
+                                <span className={done ? 'text-ink-muted line-through' : ''}>
+                                  {step.description}
+                                </span>
+                              }
+                            />
                             {step.requiresTimer && step.timerDuration && step.timerUnit ? (
                               <CookTimer
                                 presetSeconds={timerToSeconds(step.timerDuration, step.timerUnit)}
-                                label={`${section.name} timer`}
                               />
                             ) : null}
                           </div>
@@ -1137,13 +1149,13 @@ function CookSessionView({
         variant="danger"
         onClick={() => setCancelOpen(true)}
       >
-        Cancel session
+        Discard session
       </Button>
       <p className="mt-2 text-center text-xs text-ink-muted">
-        Discards all progress. Pantry is unchanged and nothing is added to Ready to eat.
+        Ends this session and discards progress. Different from “Keep session · leave” above.
       </p>
 
-      <Sheet open={cancelOpen} title="Cancel cooking session?" onClose={() => setCancelOpen(false)}>
+      <Sheet open={cancelOpen} title="Discard cooking session?" onClose={() => setCancelOpen(false)}>
         <div className="space-y-3">
           <p className="text-sm text-ink-muted">
             Step checkoffs, pantry picks, and dish notes for this session will be lost. Any
@@ -1151,7 +1163,7 @@ function CookSessionView({
             Ready to eat or the cook log.
           </p>
           <Button className="w-full" variant="danger" onClick={() => void cancelSession()}>
-            Cancel session
+            Discard session
           </Button>
           <Button className="w-full" variant="ghost" onClick={() => setCancelOpen(false)}>
             Keep cooking

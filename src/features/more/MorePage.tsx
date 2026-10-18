@@ -2,12 +2,12 @@ import { Link } from 'react-router-dom'
 import { PageHeader } from '@/shared/ui'
 
 const links = [
-  { to: '/shopping', label: 'Shopping', hint: 'Low stock and restocks' },
+  { to: '/pantry', label: 'Pantry', hint: 'Stock on hand by ingredient and brand' },
+  { to: '/backup', label: 'Backup & sync', hint: 'Cloud sync, export, and restore' },
+  { to: '/goals', label: 'Kitchen goals', hint: 'Daily energy and macros' },
   { to: '/ingredients', label: 'Ingredient library', hint: 'Food types for recipes and stock' },
   { to: '/log', label: 'Cook log', hint: 'Past cooking sessions' },
   { to: '/notebook', label: 'Notebook', hint: 'Nutrition at a glance' },
-  { to: '/goals', label: 'Kitchen goals', hint: 'Daily energy and macros' },
-  { to: '/backup', label: 'Backup & sync', hint: 'Cloud sync, export, and restore' },
 ]
 
 export function MorePage() {
@@ -15,7 +15,7 @@ export function MorePage() {
     <div>
       <PageHeader
         title="More"
-        subtitle="Library, shopping, notes, and care for your data."
+        subtitle="Pantry, library, goals, and care for your data."
       />
       <ul className="space-y-2">
         {links.map((link) => (

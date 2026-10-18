@@ -5,7 +5,8 @@ import { db } from '@/db/database'
 import type { BatchStorage, Ingredient, ReadyBatch, Recipe } from '@/domain/types'
 import { dishCategoryLabel } from '@/domain/dishTaxonomy'
 import { appConfirm } from '@/shared/dialog'
-import { Badge, Button, EmptyState, Field, PageHeader, inputClass } from '@/shared/ui'
+import { DateField, NumberField, SelectField } from '@/shared/forms'
+import { Badge, Button, EmptyState, Field, PageHeader } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
 import { isDishRecipe, storageLabel, todayISO } from '@/domain/kitchen'
@@ -50,11 +51,24 @@ export function ReadyPage() {
       <PageHeader
         title="Ready to eat"
         subtitle="Cooked dish portions waiting to be served through the week. Prep stays in the pantry."
+        actions={
+          <Button onClick={() => navigate('/serve')}>Serve</Button>
+        }
       />
       {!hasAny ? (
         <EmptyState
           title="Nothing ready yet"
           body="Finish a cooking session to add batches here."
+          actions={
+            <>
+              <Button onClick={() => navigate(`/sessions/new?date=${todayISO()}`)}>
+                Plan session
+              </Button>
+              <Button variant="secondary" onClick={() => navigate('/serve')}>
+                Serve meals
+              </Button>
+            </>
+          }
         />
       ) : (
         <div className="space-y-8">
@@ -281,13 +295,12 @@ function AdjustSheet({
         <div className="space-y-3">
           <p className="text-sm text-ink-muted">Currently {batch.portionsLeft} portions left.</p>
           <Field label="New amount">
-            <input
-              className={inputClass}
-              type="number"
-              min={0}
+            <NumberField
               value={amount}
-              onChange={(e) => {
-                const v = Number(e.target.value)
+              min={0}
+              step={1}
+              inputMode="numeric"
+              onChange={(v) => {
                 setAmount(v)
                 if (v < batch.portionsLeft) setMode('decrease')
                 else if (v > batch.portionsLeft) setMode('increase')
@@ -305,24 +318,22 @@ function AdjustSheet({
                     : 'Records waste; does not change meals.'
                 }
               >
-                <select
-                  className={inputClass}
+                <SelectField
+                  title="Reason for decrease"
                   value={decreaseReason}
-                  onChange={(e) =>
-                    setDecreaseReason(e.target.value as 'consumed' | 'discarded')
-                  }
-                >
-                  <option value="consumed">Ate it (log as Snack)</option>
-                  <option value="discarded">Discarded / waste</option>
-                </select>
+                  onChange={setDecreaseReason}
+                  options={[
+                    { id: 'consumed', label: 'Ate it (log as Snack)' },
+                    { id: 'discarded', label: 'Discarded / waste' },
+                  ]}
+                />
               </Field>
               {decreaseReason === 'consumed' ? (
                 <Field label="Snack date">
-                  <input
-                    className={inputClass}
-                    type="date"
+                  <DateField
+                    title="Snack date"
                     value={consumeDate}
-                    onChange={(e) => setConsumeDate(e.target.value)}
+                    onChange={setConsumeDate}
                   />
                 </Field>
               ) : null}
@@ -330,16 +341,15 @@ function AdjustSheet({
           ) : null}
           {amount > batch.portionsLeft ? (
             <Field label="Reason for increase">
-              <select
-                className={inputClass}
+              <SelectField
+                title="Reason for increase"
                 value={increaseReason}
-                onChange={(e) =>
-                  setIncreaseReason(e.target.value as 'correction' | 'newBatch')
-                }
-              >
-                <option value="correction">Correction</option>
-                <option value="newBatch">New batch cooked</option>
-              </select>
+                onChange={setIncreaseReason}
+                options={[
+                  { id: 'correction', label: 'Correction' },
+                  { id: 'newBatch', label: 'New batch cooked' },
+                ]}
+              />
             </Field>
           ) : null}
           <Button className="w-full" onClick={() => void save()}>

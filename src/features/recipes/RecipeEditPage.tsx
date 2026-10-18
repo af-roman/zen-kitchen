@@ -15,7 +15,6 @@ import {
   type RecipeIngredientLine,
   type RecipeKind,
   type RecipeStep,
-  type TimeUnit,
 } from '@/domain/types'
 import { recipeKindOf, uid } from '@/domain/kitchen'
 import { recipeCategory, recipeTechnique } from '@/domain/dishTaxonomy'
@@ -43,6 +42,7 @@ import { groupRecipeSteps, recipeTips, DEFAULT_SUBRECIPE, ensureStepGroups } fro
 import { normalizeYoutubeUrl } from '@/domain/youtube'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
 import { appAlert, appPrompt } from '@/shared/dialog'
+import { Checkbox, NumberField, SelectField } from '@/shared/forms'
 import { AutoTextarea, Button, Field, PageHeader, RemoveButton, inputClass } from '@/shared/ui'
 
 /** Earliest stage first, preserving each step’s relative order inside its stage. */
@@ -92,9 +92,36 @@ export function RecipeEditPage() {
   const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({})
   /** null = closed; 'add' = append; number = replace line at index */
   const [ingredientPicker, setIngredientPicker] = useState<'add' | number | null>(null)
+  /** New recipes start simple; edit always uses the full form. */
+  const [advanced, setAdvanced] = useState(!isNew)
+  const [quickStepsText, setQuickStepsText] = useState('')
 
   const yieldIng = ingredients.find((i) => i.id === yieldIngredientId)
   const isPrep = recipeKind === 'prep'
+  const quickMode = isNew && !advanced
+
+  function stepsFromQuickText(text: string): RecipeStep[] {
+    const lines = text
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (lines.length === 0) {
+      return [{ id: uid(), description: '', requiresTimer: false, group: DEFAULT_SUBRECIPE }]
+    }
+    return lines.map((description) => ({
+      id: uid(),
+      description,
+      requiresTimer: false,
+      group: DEFAULT_SUBRECIPE,
+    }))
+  }
+
+  function showAdvanced() {
+    if (quickStepsText.trim()) {
+      setSteps(stepsFromQuickText(quickStepsText))
+    }
+    setAdvanced(true)
+  }
 
   const draft = { steps, ingredients: lines }
   const multiStage = isStagedRecipe(draft)
@@ -170,7 +197,8 @@ export function RecipeEditPage() {
   }, [existing, ingredients])
 
   async function save() {
-    const normalizedSteps = ensureStepGroups(steps)
+    const workingSteps = quickMode ? stepsFromQuickText(quickStepsText) : steps
+    const normalizedSteps = ensureStepGroups(workingSteps)
     if (!name.trim() || lines.length === 0 || normalizedSteps.every((s) => !s.description.trim())) {
       await appAlert('Name, at least one ingredient, and one step are required.', { title: 'Cannot save' })
       return
@@ -267,49 +295,66 @@ export function RecipeEditPage() {
 
   return (
     <div>
-      <PageHeader title={isNew ? 'New recipe' : 'Edit recipe'} />
+      <PageHeader
+        title={isNew ? (quickMode ? 'Quick recipe' : 'New recipe') : 'Edit recipe'}
+        subtitle={
+          quickMode
+            ? 'Name, ingredients, and steps — add details later if you need them.'
+            : undefined
+        }
+      />
       <div className="space-y-4">
-        <ImageUploadField value={imageDataUrl} onChange={setImageDataUrl} />
+        {quickMode ? (
+          <p className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
+            Fridge storage defaults to 3 days. You can change that below or open full details anytime.
+          </p>
+        ) : null}
+        {!quickMode ? (
+          <ImageUploadField value={imageDataUrl} onChange={setImageDataUrl} />
+        ) : null}
         <Field label="Name">
           <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Short description">
-          <AutoTextarea
-            minRows={2}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </Field>
-        <Field
-          label="Source (optional)"
-          hint="Cookbook, friend, URL, or wherever you found this recipe."
-        >
-          <input
-            className={inputClass}
-            value={source}
-            placeholder="e.g. cookbook, friend, https://…"
-            onChange={(e) => setSource(e.target.value)}
-          />
-        </Field>
-        <Field
-          label="YouTube video (optional)"
-          hint="Opens in the browser or YouTube app. Paste a youtube.com or youtu.be link."
-        >
-          <input
-            className={inputClass}
-            type="url"
-            inputMode="url"
-            value={youtubeUrl}
-            placeholder="https://youtu.be/… or https://www.youtube.com/watch?v=…"
-            onChange={(e) => setYoutubeUrl(e.target.value)}
-          />
-        </Field>
+        {!quickMode ? (
+          <>
+            <Field label="Short description">
+              <AutoTextarea
+                minRows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="Source (optional)"
+              hint="Cookbook, friend, URL, or wherever you found this recipe."
+            >
+              <input
+                className={inputClass}
+                value={source}
+                placeholder="e.g. cookbook, friend, https://…"
+                onChange={(e) => setSource(e.target.value)}
+              />
+            </Field>
+            <Field
+              label="YouTube video (optional)"
+              hint="Opens in the browser or YouTube app. Paste a youtube.com or youtu.be link."
+            >
+              <input
+                className={inputClass}
+                type="url"
+                inputMode="url"
+                value={youtubeUrl}
+                placeholder="https://youtu.be/… or https://www.youtube.com/watch?v=…"
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+              />
+            </Field>
+          </>
+        ) : null}
         <Field label="Recipe kind">
-          <select
-            className={inputClass}
+          <SelectField
+            title="Recipe kind"
             value={recipeKind}
-            onChange={(e) => {
-              const kind = e.target.value as RecipeKind
+            onChange={(kind) => {
               setRecipeKind(kind)
               if (kind === 'prep') {
                 setFridgeDays((d) => (d > 0 && d < 7 ? 14 : d === 0 ? 14 : d))
@@ -318,34 +363,24 @@ export function RecipeEditPage() {
                 }
               }
             }}
-          >
-            <option value="dish">Dish — Ready to eat / meals</option>
-            <option value="prep">Prep — adds to pantry (sauces, dashi…)</option>
-          </select>
+            options={[
+              { id: 'dish', label: 'Dish — Ready to eat / meals' },
+              { id: 'prep', label: 'Prep — adds to pantry (sauces, dashi…)' },
+            ]}
+          />
         </Field>
         {isPrep ? (
-          <div className="grid grid-cols-2 gap-3 rounded-lg border border-accent/25 bg-accent/5 p-3">
+          <div className="grid grid-cols-1 gap-3 rounded-lg border border-accent/25 bg-accent/5 p-3 sm:grid-cols-2">
             <Field label="Yields ingredient">
-              <select
-                className={inputClass}
+              <SelectField<number>
+                title="Yields ingredient"
                 value={yieldIngredientId}
-                onChange={(e) => setYieldIngredientId(Number(e.target.value))}
-              >
-                {ingredients.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setYieldIngredientId}
+                options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
+              />
             </Field>
             <Field label={`Yield amount (${yieldIng?.unit ?? 'unit'})`}>
-              <input
-                className={inputClass}
-                type="number"
-                min={0}
-                value={yieldAmount}
-                onChange={(e) => setYieldAmount(Number(e.target.value))}
-              />
+              <NumberField value={yieldAmount} min={0} step={1} onChange={setYieldAmount} />
             </Field>
             <p className="col-span-2 text-xs text-ink-muted">
               When you finish cooking, this amount (scaled by batches) is added to the pantry as
@@ -353,53 +388,42 @@ export function RecipeEditPage() {
             </p>
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={isPrep ? 'Category' : 'Dish category'}>
-            <select
-              className={inputClass}
-              value={category}
-              onChange={(e) => setCategory(e.target.value as DishCategory)}
-            >
-              {DISH_CATEGORIES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Technique">
-            <select
-              className={inputClass}
-              value={technique}
-              onChange={(e) => setTechnique(e.target.value as PreparationTechnique)}
-            >
-              {PREPARATION_TECHNIQUES.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Effort">
-            <select
-              className={inputClass}
-              value={effort}
-              onChange={(e) => setEffort(e.target.value as Effort)}
-            >
-              {EFFORT_LEVELS.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.label}
-                </option>
-              ))}
-            </select>
-          </Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {!quickMode ? (
+            <>
+              <Field label={isPrep ? 'Category' : 'Dish category'}>
+                <SelectField
+                  title={isPrep ? 'Category' : 'Dish category'}
+                  value={category}
+                  onChange={setCategory}
+                  options={DISH_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
+                />
+              </Field>
+              <Field label="Technique">
+                <SelectField
+                  title="Technique"
+                  value={technique}
+                  onChange={setTechnique}
+                  options={PREPARATION_TECHNIQUES.map((t) => ({ id: t.id, label: t.label }))}
+                />
+              </Field>
+              <Field label="Effort">
+                <SelectField
+                  title="Effort"
+                  value={effort}
+                  onChange={setEffort}
+                  options={EFFORT_LEVELS.map((e) => ({ id: e.id, label: e.label }))}
+                />
+              </Field>
+            </>
+          ) : null}
           <Field label={isPrep ? 'Batches (scale)' : 'Portions'}>
-            <input
-              className={inputClass}
-              type="number"
-              min={1}
+            <NumberField
               value={portions}
-              onChange={(e) => setPortions(Number(e.target.value))}
+              min={1}
+              step={1}
+              inputMode="numeric"
+              onChange={setPortions}
             />
           </Field>
         </div>
@@ -432,54 +456,50 @@ export function RecipeEditPage() {
                       </span>
                     </button>
                     <div className="flex shrink-0 items-stretch gap-2">
-                      <input
-                        className={`${inputClass} h-auto w-20`}
-                        type="number"
-                        min={0}
-                        step="0.1"
-                        value={displayAmount}
-                        onChange={(e) => {
-                          if (!ing) return
-                          const measureAmount = Number(e.target.value)
-                          const next = [...lines]
-                          try {
-                            next[idx] = {
-                              ...line,
-                              amount: toStockAmount(measureAmount, measure, ing),
-                              measureUnit: measure === ing.unit ? undefined : measure,
+                      <div className="w-36">
+                        <NumberField
+                          value={displayAmount}
+                          min={0}
+                          step={0.1}
+                          onChange={(measureAmount) => {
+                            if (!ing) return
+                            const next = [...lines]
+                            try {
+                              next[idx] = {
+                                ...line,
+                                amount: toStockAmount(measureAmount, measure, ing),
+                                measureUnit: measure === ing.unit ? undefined : measure,
+                              }
+                              setLines(next)
+                            } catch {
+                              /* ignore while typing invalid spoon without density */
                             }
-                            setLines(next)
-                          } catch {
-                            /* ignore while typing invalid spoon without density */
-                          }
-                        }}
-                      />
-                      <select
-                        className={`${inputClass} h-auto w-24`}
-                        value={measure}
-                        onChange={async (e) => {
-                          if (!ing) return
-                          const nextMeasure = e.target.value as MeasureUnit
-                          const shown = fromStockAmount(line.amount, measure, ing)
-                          const next = [...lines]
-                          try {
-                            next[idx] = {
-                              ...line,
-                              amount: toStockAmount(shown, nextMeasure, ing),
-                              measureUnit: nextMeasure === ing.unit ? undefined : nextMeasure,
+                          }}
+                        />
+                      </div>
+                      <div className="w-24">
+                        <SelectField
+                          title="Unit"
+                          compact
+                          value={measure}
+                          onChange={async (nextMeasure) => {
+                            if (!ing) return
+                            const shown = fromStockAmount(line.amount, measure, ing)
+                            const next = [...lines]
+                            try {
+                              next[idx] = {
+                                ...line,
+                                amount: toStockAmount(shown, nextMeasure, ing),
+                                measureUnit: nextMeasure === ing.unit ? undefined : nextMeasure,
+                              }
+                              setLines(next)
+                            } catch (err) {
+                              await appAlert(err instanceof Error ? err.message : 'Cannot convert unit')
                             }
-                            setLines(next)
-                          } catch (err) {
-                            await appAlert(err instanceof Error ? err.message : 'Cannot convert unit')
-                          }
-                        }}
-                      >
-                        {measureOptions.map((u) => (
-                          <option key={u} value={u}>
-                            {u}
-                          </option>
-                        ))}
-                      </select>
+                          }}
+                          options={measureOptions.map((u) => ({ id: u, label: u }))}
+                        />
+                      </div>
                       <RemoveButton
                         icon
                         className="h-auto min-h-10 self-stretch"
@@ -487,29 +507,29 @@ export function RecipeEditPage() {
                       />
                     </div>
                   </div>
-                  {multiStage ? (
-                    <label className="flex items-center gap-2 text-xs text-ink-muted">
-                      Needed
-                      <select
-                        className={`${inputClass} w-40 py-1 text-xs`}
-                        value={stageOfLine(line)}
-                        onChange={(e) => {
-                          const daysAhead = Number(e.target.value)
-                          const next = [...lines]
-                          next[idx] = {
-                            ...line,
-                            daysAhead: daysAhead > 0 ? daysAhead : undefined,
-                          }
-                          setLines(next)
-                        }}
-                      >
-                        {stagesPresent.map((d) => (
-                          <option key={d} value={d}>
-                            {stageLabel(d)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                  {!quickMode && multiStage ? (
+                    <div className="flex items-center gap-2 text-xs text-ink-muted">
+                      <span>Needed</span>
+                      <div className="w-40">
+                        <SelectField<number>
+                          title="When needed"
+                          compact
+                          value={stageOfLine(line)}
+                          onChange={(daysAhead) => {
+                            const next = [...lines]
+                            next[idx] = {
+                              ...line,
+                              daysAhead: daysAhead > 0 ? daysAhead : undefined,
+                            }
+                            setLines(next)
+                          }}
+                          options={stagesPresent.map((d) => ({
+                            id: d,
+                            label: stageLabel(d),
+                          }))}
+                        />
+                      </div>
+                    </div>
                   ) : null}
                   {ing && measure !== ing.unit && !isSpoonUnit(measure) ? (
                     <p className="text-xs text-ink-muted">
@@ -530,6 +550,7 @@ export function RecipeEditPage() {
           </div>
         </section>
 
+        {!quickMode ? (
         <section>
           <h2 className="mb-2 text-lg">Chef’s tips</h2>
           <div className="space-y-2">
@@ -562,7 +583,24 @@ export function RecipeEditPage() {
             </Button>
           </div>
         </section>
+        ) : null}
 
+        {quickMode ? (
+          <section>
+            <h2 className="mb-2 text-lg">Steps</h2>
+            <Field
+              label="One step per line"
+              hint="Each line becomes a step. You can add timers and subrecipes in full details."
+            >
+              <AutoTextarea
+                minRows={5}
+                value={quickStepsText}
+                placeholder={'Wash rice\nCook for 15 minutes\nRest 10 minutes'}
+                onChange={(e) => setQuickStepsText(e.target.value)}
+              />
+            </Field>
+          </section>
+        ) : (
         <section>
           <h2 className="mb-2 text-lg">Steps</h2>
           <p className="mb-3 text-xs text-ink-muted">
@@ -619,11 +657,10 @@ export function RecipeEditPage() {
                   </div>
                   <div className="min-w-[10rem] sm:w-44">
                       <Field label="When">
-                        <select
-                          className={inputClass}
+                        <SelectField<number>
+                          title="When"
                           value={sectionWhen}
-                          onChange={(e) => {
-                            const daysAhead = Number(e.target.value)
+                          onChange={(daysAhead) => {
                             const ids = new Set(section.steps.map((s) => s.id))
                             setSteps(
                               steps.map((s) =>
@@ -636,13 +673,11 @@ export function RecipeEditPage() {
                               ),
                             )
                           }}
-                        >
-                          {stageOptions().map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={stageOptions().map((opt) => ({
+                            id: opt.value,
+                            label: opt.label,
+                          }))}
+                        />
                       </Field>
                     </div>
                 </div>
@@ -675,48 +710,52 @@ export function RecipeEditPage() {
                           setSteps(next)
                         }}
                       />
-                      <label className="mt-2 flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={step.requiresTimer}
-                          onChange={(e) => {
-                            const next = [...steps]
-                            next[idx] = {
-                              ...step,
-                              requiresTimer: e.target.checked,
-                              timerDuration: e.target.checked ? step.timerDuration ?? 5 : undefined,
-                              timerUnit: e.target.checked ? step.timerUnit ?? 'minutes' : undefined,
-                            }
-                            setSteps(next)
-                          }}
-                        />
-                        Requires timer
-                      </label>
+                      <Checkbox
+                        className="mt-2"
+                        checked={step.requiresTimer}
+                        onChange={(requiresTimer) => {
+                          const next = [...steps]
+                          next[idx] = {
+                            ...step,
+                            requiresTimer,
+                            timerDuration: requiresTimer ? step.timerDuration ?? 5 : undefined,
+                            timerUnit: requiresTimer ? step.timerUnit ?? 'minutes' : undefined,
+                          }
+                          setSteps(next)
+                        }}
+                        label="Requires timer"
+                      />
                       {step.requiresTimer ? (
                         <div className="mt-2 flex gap-2">
-                          <input
-                            className={inputClass}
-                            type="number"
-                            value={step.timerDuration ?? 0}
-                            onChange={(e) => {
-                              const next = [...steps]
-                              next[idx] = { ...step, timerDuration: Number(e.target.value) }
-                              setSteps(next)
-                            }}
-                          />
-                          <select
-                            className={inputClass}
-                            value={step.timerUnit ?? 'minutes'}
-                            onChange={(e) => {
-                              const next = [...steps]
-                              next[idx] = { ...step, timerUnit: e.target.value as TimeUnit }
-                              setSteps(next)
-                            }}
-                          >
-                            <option value="seconds">seconds</option>
-                            <option value="minutes">minutes</option>
-                            <option value="hours">hours</option>
-                          </select>
+                          <div className="w-36">
+                            <NumberField
+                              value={step.timerDuration ?? 0}
+                              min={0}
+                              step={1}
+                              inputMode="numeric"
+                              onChange={(timerDuration) => {
+                                const next = [...steps]
+                                next[idx] = { ...step, timerDuration }
+                                setSteps(next)
+                              }}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <SelectField
+                              title="Timer unit"
+                              value={step.timerUnit ?? 'minutes'}
+                              onChange={(timerUnit) => {
+                                const next = [...steps]
+                                next[idx] = { ...step, timerUnit }
+                                setSteps(next)
+                              }}
+                              options={[
+                                { id: 'seconds', label: 'seconds' },
+                                { id: 'minutes', label: 'minutes' },
+                                { id: 'hours', label: 'hours' },
+                              ]}
+                            />
+                          </div>
                         </div>
                       ) : null}
                       <RemoveButton
@@ -822,6 +861,7 @@ export function RecipeEditPage() {
             </Button>
           </div>
         </section>
+        )}
 
         <RecipeStorageFields
           fridgeDays={fridgeDays}
@@ -835,6 +875,11 @@ export function RecipeEditPage() {
         <Button className="w-full" onClick={() => void save()}>
           Save recipe
         </Button>
+        {quickMode ? (
+          <Button className="w-full" variant="secondary" onClick={showAdvanced}>
+            More details
+          </Button>
+        ) : null}
         <Button variant="ghost" className="w-full" onClick={() => navigate(-1)}>
           Cancel
         </Button>

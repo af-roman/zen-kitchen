@@ -1,19 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import type { Goals } from '@/domain/types'
 import { appAlert } from '@/shared/dialog'
-import { Button, Field, PageHeader, inputClass } from '@/shared/ui'
+import { NumberField } from '@/shared/forms'
+import { Button, Field, PageHeader } from '@/shared/ui'
 import { MacroBar } from '@/shared/MacroBar'
 import { emptyNutrition } from '@/domain/nutrition'
 
 export function GoalsPage() {
   const goals = useLiveQuery(() => db.goals.get(1))
+  const [draft, setDraft] = useState<Goals | null>(null)
   const [saved, setSaved] = useState(false)
 
-  if (!goals) return null
+  useEffect(() => {
+    if (goals) setDraft(goals)
+  }, [goals])
 
-  async function save(next: Goals) {
+  if (!goals || !draft) return null
+
+  async function save() {
+    const next = draft!
     const total = next.carbsPct + next.proteinPct + next.fatPct
     if (total !== 100) {
       await appAlert('Macro percentages must add up to 100.', { title: 'Cannot save' })
@@ -30,81 +37,64 @@ export function GoalsPage() {
         title="Kitchen goals"
         subtitle="Daily energy and macro balance — every dish is compared to these."
       />
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault()
-          const fd = new FormData(e.currentTarget)
-          void save({
-            id: 1,
-            dailyKcal: Number(fd.get('dailyKcal')),
-            carbsPct: Number(fd.get('carbsPct')),
-            proteinPct: Number(fd.get('proteinPct')),
-            fatPct: Number(fd.get('fatPct')),
-          })
-        }}
-      >
+      <div className="space-y-4">
         <Field label="Daily energy (kcal)">
-          <input
-            className={inputClass}
-            name="dailyKcal"
-            type="number"
+          <NumberField
+            value={draft.dailyKcal}
             min={800}
             max={6000}
-            defaultValue={goals.dailyKcal}
-            required
+            step={50}
+            inputMode="numeric"
+            onChange={(dailyKcal) => setDraft({ ...draft, dailyKcal })}
           />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Carbs %">
-            <input
-              className={inputClass}
-              name="carbsPct"
-              type="number"
+            <NumberField
+              value={draft.carbsPct}
               min={0}
               max={100}
-              defaultValue={goals.carbsPct}
-              required
+              step={1}
+              inputMode="numeric"
+              onChange={(carbsPct) => setDraft({ ...draft, carbsPct })}
             />
           </Field>
           <Field label="Protein %">
-            <input
-              className={inputClass}
-              name="proteinPct"
-              type="number"
+            <NumberField
+              value={draft.proteinPct}
               min={0}
               max={100}
-              defaultValue={goals.proteinPct}
-              required
+              step={1}
+              inputMode="numeric"
+              onChange={(proteinPct) => setDraft({ ...draft, proteinPct })}
             />
           </Field>
           <Field label="Fat %">
-            <input
-              className={inputClass}
-              name="fatPct"
-              type="number"
+            <NumberField
+              value={draft.fatPct}
               min={0}
               max={100}
-              defaultValue={goals.fatPct}
-              required
+              step={1}
+              inputMode="numeric"
+              onChange={(fatPct) => setDraft({ ...draft, fatPct })}
             />
           </Field>
         </div>
         <div className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
           <p className="mb-3 text-sm text-ink-muted">Preview vs a full day at goal</p>
           <MacroBar
-            goals={goals}
+            goals={draft}
             nutrition={{
               ...emptyNutrition(),
-              energyKcal: goals.dailyKcal,
-              carbsG: (goals.dailyKcal * goals.carbsPct) / 100 / 4,
-              proteinG: (goals.dailyKcal * goals.proteinPct) / 100 / 4,
-              fatG: (goals.dailyKcal * goals.fatPct) / 100 / 9,
+              energyKcal: draft.dailyKcal,
+              carbsG: (draft.dailyKcal * draft.carbsPct) / 100 / 4,
+              proteinG: (draft.dailyKcal * draft.proteinPct) / 100 / 4,
+              fatG: (draft.dailyKcal * draft.fatPct) / 100 / 9,
             }}
           />
         </div>
-        <Button type="submit">{saved ? 'Saved' : 'Save goals'}</Button>
-      </form>
+        <Button onClick={() => void save()}>{saved ? 'Saved' : 'Save goals'}</Button>
+      </div>
     </div>
   )
 }

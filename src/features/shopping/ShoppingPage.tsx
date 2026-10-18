@@ -14,6 +14,7 @@ import { isAlwaysAvailable, isLowStock, todayISO, uid } from '@/domain/kitchen'
 import { stockTotals } from '@/domain/recipeMath'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appAlert, appConfirm } from '@/shared/dialog'
+import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
 import { Badge, Button, EmptyState, Field, PageHeader, RemoveButton, WarnBanner, inputClass, AutoTextarea } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -387,15 +388,13 @@ export function ShoppingPage() {
                       checked ? 'border-accent/50 bg-accent/5' : 'border-line'
                     }`}
                   >
-                    <label className="flex cursor-pointer items-center px-3">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-[var(--color-accent)]"
+                    <div className="flex items-center px-3">
+                      <Checkbox
                         checked={checked}
                         onChange={() => toggleSelected(item.id)}
-                        aria-label={`Select ${ing?.name ?? 'item'}`}
+                        label={<span className="sr-only">Select {ing?.name ?? 'item'}</span>}
                       />
-                    </label>
+                    </div>
                     <button
                       type="button"
                       onClick={() => startEditListItem(item)}
@@ -589,36 +588,19 @@ function ShoppingListItemSheet({
     <Sheet open={open} title={editing ? 'Edit list item' : 'Add to shopping list'} onClose={onClose}>
       <div className="space-y-3">
         <Field label="Ingredient">
-          <select
-            className={inputClass}
+          <SelectField<number>
+            title="Ingredient"
             value={ingredientId}
-            onChange={(e) => setIngredientId(Number(e.target.value))}
-          >
-            {ingredients.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name}
-              </option>
-            ))}
-          </select>
+            onChange={setIngredientId}
+            options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
+          />
         </Field>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Field label={`Amount (${unit})`}>
-            <input
-              className={inputClass}
-              type="number"
-              min={0}
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-            />
+            <NumberField value={amount} min={0} step={1} onChange={setAmount} />
           </Field>
           <Field label="Price (Kč)">
-            <input
-              className={inputClass}
-              type="number"
-              min={0}
-              value={cost}
-              onChange={(e) => setCost(Number(e.target.value))}
-            />
+            <NumberField value={cost} min={0} step={1} onChange={setCost} />
           </Field>
           <Field label="Brand">
             <input
@@ -856,12 +838,7 @@ function RestockSheet({
           </WarnBanner>
         ) : null}
         <Field label="Purchase date">
-          <input
-            className={inputClass}
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+          <DateField title="Purchase date" value={date} onChange={setDate} />
         </Field>
         <div className="flex justify-between">
           <h3 className="font-medium">Items</h3>
@@ -875,23 +852,18 @@ function RestockSheet({
           return (
             <div key={idx} className="space-y-2 rounded-lg border border-line p-3">
               <Field label="Ingredient">
-                <select
-                  className={inputClass}
+                <SelectField<number>
+                  title="Ingredient"
                   value={line.ingredientId}
-                  onChange={(e) => {
+                  onChange={(ingredientId) => {
                     const next = [...lines]
-                    next[idx] = { ...line, ingredientId: Number(e.target.value) }
+                    next[idx] = { ...line, ingredientId }
                     setLines(next)
                   }}
-                >
-                  {ingredients.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.name}
-                    </option>
-                  ))}
-                </select>
+                  options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
+                />
               </Field>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Field label="Brand">
                   <input
                     className={inputClass}
@@ -904,37 +876,38 @@ function RestockSheet({
                   />
                 </Field>
                 <Field label={`Amount (${unit})`}>
-                  <input
-                    className={inputClass}
-                    type="number"
+                  <NumberField
                     value={line.amount}
-                    onChange={(e) => {
+                    min={0}
+                    step={1}
+                    onChange={(amount) => {
                       const next = [...lines]
-                      next[idx] = { ...line, amount: Number(e.target.value) }
+                      next[idx] = { ...line, amount }
                       setLines(next)
                     }}
                   />
                 </Field>
                 <Field label="Cost (Kč)">
-                  <input
-                    className={inputClass}
-                    type="number"
+                  <NumberField
                     value={line.cost}
-                    onChange={(e) => {
+                    min={0}
+                    step={1}
+                    onChange={(cost) => {
                       const next = [...lines]
-                      next[idx] = { ...line, cost: Number(e.target.value) }
+                      next[idx] = { ...line, cost }
                       setLines(next)
                     }}
                   />
                 </Field>
                 <Field label="Expiry date">
-                  <input
-                    className={inputClass}
-                    type="date"
+                  <DateField
+                    title="Expiry date"
                     value={line.expiryDate ?? ''}
-                    onChange={(e) => {
+                    allowEmpty
+                    emptyLabel="No expiry"
+                    onChange={(expiryDate) => {
                       const next = [...lines]
-                      next[idx] = { ...line, expiryDate: e.target.value || undefined }
+                      next[idx] = { ...line, expiryDate: expiryDate || undefined }
                       setLines(next)
                     }}
                   />

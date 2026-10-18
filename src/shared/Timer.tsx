@@ -1,35 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '@/domain/nutrition'
-import { Button, inputClass } from './ui'
+import { NumberField } from '@/shared/forms'
+import { Button } from './ui'
 
-function playAlarm() {
-  try {
-    const ctx = new AudioContext()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = 'sine'
-    osc.frequency.value = 880
-    gain.gain.value = 0.08
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start()
-    const stopAt = ctx.currentTime + 0.35
-    gain.gain.exponentialRampToValueAtTime(0.001, stopAt)
-    osc.stop(stopAt)
-    setTimeout(() => {
-      const osc2 = ctx.createOscillator()
-      const gain2 = ctx.createGain()
-      osc2.frequency.value = 660
-      gain2.gain.value = 0.08
-      osc2.connect(gain2)
-      gain2.connect(ctx.destination)
-      osc2.start()
-      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
-      osc2.stop(ctx.currentTime + 0.4)
-    }, 400)
-  } catch {
-    // Audio may be blocked
-  }
+function playBeep(ctx: AudioContext) {
+  const now = ctx.currentTime
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = 'sine'
+  osc.frequency.value = 880
+  gain.gain.value = 0.08
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start(now)
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35)
+  osc.stop(now + 0.35)
+
+  const osc2 = ctx.createOscillator()
+  const gain2 = ctx.createGain()
+  osc2.type = 'sine'
+  osc2.frequency.value = 660
+  gain2.gain.value = 0.08
+  osc2.connect(gain2)
+  gain2.connect(ctx.destination)
+  osc2.start(now + 0.4)
+  gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8)
+  osc2.stop(now + 0.8)
 }
 
 function clampSeconds(total: number): number {
@@ -38,15 +34,14 @@ function clampSeconds(total: number): number {
 
 export function CookTimer({
   presetSeconds,
-  label,
 }: {
   presetSeconds: number
-  label?: string
 }) {
   const [remaining, setRemaining] = useState(presetSeconds)
   const [running, setRunning] = useState(false)
   const [alarm, setAlarm] = useState(false)
   const intervalRef = useRef<number | null>(null)
+  const alarmCtxRef = useRef<AudioContext | null>(null)
 
   useEffect(() => {
     setRemaining(presetSeconds)
@@ -64,7 +59,6 @@ export function CookTimer({
         if (r <= 1) {
           setRunning(false)
           setAlarm(true)
-          playAlarm()
           return 0
         }
         return r - 1
@@ -75,6 +69,53 @@ export function CookTimer({
     }
   }, [running])
 
+  useEffect(() => {
+    if (!alarm) {
+      if (alarmCtxRef.current) {
+        void alarmCtxRef.current.close().catch(() => undefined)
+        alarmCtxRef.current = null
+      }
+      return
+    }
+
+    let cancelled = false
+    let intervalId: number | null = null
+
+    async function startLoop() {
+      try {
+        const ctx = new AudioContext()
+        alarmCtxRef.current = ctx
+        if (ctx.state === 'suspended') await ctx.resume()
+        if (cancelled) {
+          void ctx.close()
+          return
+        }
+        playBeep(ctx)
+        intervalId = window.setInterval(() => {
+          if (cancelled || ctx.state === 'closed') return
+          try {
+            playBeep(ctx)
+          } catch {
+            /* ignore */
+          }
+        }, 1100)
+      } catch {
+        // Audio may be blocked
+      }
+    }
+
+    void startLoop()
+
+    return () => {
+      cancelled = true
+      if (intervalId != null) window.clearInterval(intervalId)
+      if (alarmCtxRef.current) {
+        void alarmCtxRef.current.close().catch(() => undefined)
+        alarmCtxRef.current = null
+      }
+    }
+  }, [alarm])
+
   const minutes = Math.floor(remaining / 60)
   const seconds = remaining % 60
 
@@ -82,6 +123,10 @@ export function CookTimer({
     const m = Math.max(0, Math.floor(nextMin) || 0)
     const s = Math.max(0, Math.min(59, Math.floor(nextSec) || 0))
     setRemaining(clampSeconds(m * 60 + s))
+    setAlarm(false)
+  }
+
+  function stopAlarm() {
     setAlarm(false)
   }
 
@@ -96,31 +141,30 @@ export function CookTimer({
           {formatDuration(remaining)}
         </div>
       ) : (
-        <div className="flex items-center gap-1">
-          <input
-            className={`${inputClass} !w-14 !px-2 !py-1 text-center tabular-nums`}
-            type="number"
-            min={0}
-            inputMode="numeric"
-            aria-label="Minutes"
-            value={minutes}
-            onChange={(e) => setFromParts(Number(e.target.value), seconds)}
-          />
+        <div className="flex min-w-0 items-center gap-1">
+          <div className="w-28">
+            <NumberField
+              value={minutes}
+              min={0}
+              step={1}
+              inputMode="numeric"
+              onChange={(m) => setFromParts(m, seconds)}
+            />
+          </div>
           <span className="font-display text-lg text-accent-deep">:</span>
-          <input
-            className={`${inputClass} !w-14 !px-2 !py-1 text-center tabular-nums`}
-            type="number"
-            min={0}
-            max={59}
-            inputMode="numeric"
-            aria-label="Seconds"
-            value={seconds}
-            onChange={(e) => setFromParts(minutes, Number(e.target.value))}
-          />
+          <div className="w-28">
+            <NumberField
+              value={seconds}
+              min={0}
+              max={59}
+              step={1}
+              inputMode="numeric"
+              onChange={(s) => setFromParts(minutes, s)}
+            />
+          </div>
         </div>
       )}
-      {label ? <span className="text-xs text-ink-muted">{label}</span> : null}
-      <div className="ml-auto flex gap-1">
+      <div className="ml-auto flex flex-wrap justify-end gap-1">
         {!running ? (
           <Button
             variant="secondary"
@@ -144,14 +188,14 @@ export function CookTimer({
           onClick={() => {
             setRunning(false)
             setRemaining(presetSeconds)
-            setAlarm(false)
+            stopAlarm()
           }}
         >
           Reset
         </Button>
         {alarm ? (
-          <Button variant="primary" className="!py-1 !text-xs" onClick={() => setAlarm(false)}>
-            Dismiss
+          <Button variant="primary" className="!py-1 !text-xs" onClick={stopAlarm}>
+            Stop alarm
           </Button>
         ) : null}
       </div>

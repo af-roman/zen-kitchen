@@ -18,6 +18,7 @@ import { recipeNutrition, stockTotals } from '@/domain/recipeMath'
 import { useGoals } from '@/shared/hooks'
 import { assetUrl } from '@/shared/assetUrl'
 import { MacroInline } from '@/shared/MacroBar'
+import { Checkbox, SelectField } from '@/shared/forms'
 import { Badge, Button, EmptyState, PageHeader, SegmentedControl, inputClass } from '@/shared/ui'
 
 type SortKey = 'name' | 'effort' | 'newest'
@@ -122,7 +123,7 @@ export function RecipesPage() {
         title="Recipes"
         subtitle="Dishes for the week, and prep bases that refill the pantry."
         actions={
-          <Button onClick={() => navigate('/recipes/new')}>Add</Button>
+          <Button onClick={() => navigate('/recipes/new')}>Add recipe</Button>
         }
       />
       <div className="mb-4 grid gap-2 sm:grid-cols-2">
@@ -142,65 +143,86 @@ export function RecipesPage() {
             { id: 'prep', label: 'Prep' },
           ]}
         />
-        <select
-          className={inputClass}
+        <SelectField
+          title="Category"
           value={category}
-          onChange={(e) => setCategory(e.target.value as DishCategory | 'all')}
-        >
-          <option value="all">All categories</option>
-          {DISH_CATEGORIES.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <select
-          className={inputClass}
+          onChange={setCategory}
+          options={[
+            { id: 'all', label: 'All categories' },
+            ...DISH_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+          ]}
+        />
+        <SelectField
+          title="Technique"
           value={technique}
-          onChange={(e) => setTechnique(e.target.value as PreparationTechnique | 'all')}
-        >
-          <option value="all">Any technique</option>
-          {PREPARATION_TECHNIQUES.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-        <select
-          className={inputClass}
+          onChange={setTechnique}
+          options={[
+            { id: 'all', label: 'Any technique' },
+            ...PREPARATION_TECHNIQUES.map((t) => ({ id: t.id, label: t.label })),
+          ]}
+        />
+        <SelectField
+          title="Effort"
           value={effort}
-          onChange={(e) => setEffort(e.target.value as Effort | 'all')}
-        >
-          <option value="all">Any effort</option>
-          {EFFORT_LEVELS.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.label}
-            </option>
-          ))}
-        </select>
-        <select className={inputClass} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-          <option value="name">Sort A–Z</option>
-          <option value="effort">Sort by effort</option>
-          <option value="newest">Sort by newest</option>
-        </select>
+          onChange={setEffort}
+          options={[
+            { id: 'all', label: 'Any effort' },
+            ...EFFORT_LEVELS.map((e) => ({ id: e.id, label: e.label })),
+          ]}
+        />
+        <SelectField
+          title="Sort"
+          value={sort}
+          onChange={setSort}
+          options={[
+            { id: 'name', label: 'Sort A–Z' },
+            { id: 'effort', label: 'Sort by effort' },
+            { id: 'newest', label: 'Sort by newest' },
+          ]}
+        />
       </div>
-      <div className="mb-4 flex flex-wrap gap-3 text-sm">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={cookableOnly}
-            onChange={(e) => setCookableOnly(e.target.checked)}
-          />
-          Cookable now
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} />
-          Compact list
-        </label>
+      <div className="mb-4 flex flex-wrap gap-4">
+        <Checkbox
+          checked={cookableOnly}
+          onChange={setCookableOnly}
+          label="Cookable now"
+        />
+        <Checkbox checked={compact} onChange={setCompact} label="Compact list" />
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No recipes match" body="Try clearing filters or add a new recipe." />
+        recipes.length === 0 ? (
+          <EmptyState
+            title="No recipes yet"
+            body="Add a quick recipe to start planning cook sessions."
+            actions={
+              <Button onClick={() => navigate('/recipes/new')}>Add recipe</Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No recipes match"
+            body="Try clearing filters or add a new recipe."
+            actions={
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setQ('')
+                    setKind('all')
+                    setCategory('all')
+                    setTechnique('all')
+                    setEffort('all')
+                    setCookableOnly(false)
+                  }}
+                >
+                  Clear filters
+                </Button>
+                <Button onClick={() => navigate('/recipes/new')}>Add recipe</Button>
+              </>
+            }
+          />
+        )
       ) : (
         <ul className={compact ? 'space-y-2' : 'space-y-3'}>
           {filtered.map((recipe) => (

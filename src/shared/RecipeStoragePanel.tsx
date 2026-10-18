@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { formatStorageSummary } from '@/domain/storage'
-import { AutoTextarea, Field, inputClass } from '@/shared/ui'
+import { NumberField } from '@/shared/forms'
+import { AutoTextarea, Field } from '@/shared/ui'
 
 export function RecipeStoragePanel({
   fridgeDays,
@@ -56,23 +57,23 @@ export function RecipeStorageFields({
         Set how long leftovers keep in each place. Leave a field at 0 to skip that option. When you
         cook, you choose fridge or freezer.
       </p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Fridge (days)" hint="0 = not offered">
-          <input
-            className={inputClass}
-            type="number"
-            min={0}
+          <NumberField
             value={fridgeDays}
-            onChange={(e) => onFridgeDaysChange(Number(e.target.value))}
+            min={0}
+            step={1}
+            inputMode="numeric"
+            onChange={onFridgeDaysChange}
           />
         </Field>
         <Field label="Freezer (days)" hint="0 = not offered">
-          <input
-            className={inputClass}
-            type="number"
-            min={0}
+          <NumberField
             value={freezerDays}
-            onChange={(e) => onFreezerDaysChange(Number(e.target.value))}
+            min={0}
+            step={1}
+            inputMode="numeric"
+            onChange={onFreezerDaysChange}
           />
         </Field>
       </div>

@@ -109,13 +109,15 @@ export function Field({
   label,
   children,
   hint,
+  className = '',
 }: {
   label: string
   children: ReactNode
   hint?: string
+  className?: string
 }) {
   return (
-    <label className="block space-y-1.5">
+    <label className={`block min-w-0 space-y-1.5 ${className}`}>
       <span className="text-sm font-medium text-ink-muted">{label}</span>
       {children}
       {hint ? <span className="block text-xs text-ink-muted/80">{hint}</span> : null}
@@ -124,7 +126,7 @@ export function Field({
 }
 
 export const inputClass =
-  'w-full rounded-lg border border-line bg-paper-elevated px-3 py-2 text-base text-ink outline-none transition focus:border-accent'
+  'box-border w-full min-w-0 max-w-full rounded-lg border border-line bg-paper-elevated px-3 py-2 text-base text-ink outline-none transition hover:border-accent/50 focus:border-accent focus:ring-2 focus:ring-accent/20'
 
 /** Textarea that grows with its content. */
 export function AutoTextarea({
@@ -186,11 +188,22 @@ export function Badge({
   )
 }
 
-export function EmptyState({ title, body }: { title: string; body?: string }) {
+export function EmptyState({
+  title,
+  body,
+  actions,
+}: {
+  title: string
+  body?: string
+  actions?: ReactNode
+}) {
   return (
     <div className="rounded-[var(--radius-card)] border border-dashed border-line px-6 py-10 text-center">
       <p className="font-display text-lg text-accent-deep">{title}</p>
       {body ? <p className="mt-2 text-sm text-ink-muted">{body}</p> : null}
+      {actions ? (
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">{actions}</div>
+      ) : null}
     </div>
   )
 }

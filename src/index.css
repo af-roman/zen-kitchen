@@ -48,6 +48,18 @@
   select,
   textarea {
     font-size: 16px;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  /* Native date/time controls are wide on iOS — never force a min width. */
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'] {
+    min-width: 0;
+    width: 100%;
   }
 }
 

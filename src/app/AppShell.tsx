@@ -14,9 +14,13 @@ const nav: {
     end: true,
     isActive: (pathname) => pathname === '/' || pathname.startsWith('/plan/'),
   },
-  { to: '/ready', label: 'Ready to eat' },
+  { to: '/ready', label: 'Ready' },
+  {
+    to: '/shopping',
+    label: 'Shop',
+    isActive: (pathname) => pathname.startsWith('/shopping'),
+  },
   { to: '/recipes', label: 'Recipes', isActive: (pathname) => pathname.startsWith('/recipes') },
-  { to: '/pantry', label: 'Pantry' },
   { to: '/more', label: 'More' },
 ]
 

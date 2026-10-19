@@ -158,7 +158,7 @@ function BatchRow({
       <button
         type="button"
         onClick={onAdjust}
-        className="flex w-full gap-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-3 text-left"
+        className="flex w-full gap-3 card-elevated p-3 text-left"
       >
         <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
           {recipe?.imageDataUrl ? (

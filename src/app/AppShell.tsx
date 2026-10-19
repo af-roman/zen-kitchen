@@ -38,7 +38,7 @@ export function AppShell() {
           <button
             type="button"
             onClick={() => navigate(`/cook/${activeSession.id}`)}
-            className="mb-4 flex w-full items-center justify-between rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-left text-sm text-accent-deep"
+            className="panel-action mb-4 flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-accent-deep"
           >
             <span>
               Session in progress · {activeSession.date}
@@ -50,8 +50,8 @@ export function AppShell() {
           <Outlet />
         </div>
       </div>
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper-elevated/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl justify-around px-1 pb-[env(safe-area-inset-bottom)] pt-1">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-paper-elevated/95 shadow-[0_-4px_16px_rgba(42,46,43,0.04)] backdrop-blur-md">
+        <div className="mx-auto flex max-w-3xl justify-around gap-0.5 px-1.5 pb-[env(safe-area-inset-bottom)] pt-1.5">
           {nav.map((item) => {
             const active = item.isActive
               ? item.isActive(location.pathname)
@@ -64,17 +64,19 @@ export function AppShell() {
                 key={item.to}
                 to={item.to}
                 end={item.end}
-                className={`flex min-w-0 flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] sm:text-xs ${
-                  active ? 'text-accent-deep' : 'text-ink-muted'
+                className={`flex min-w-0 flex-1 flex-col items-center rounded-lg px-1 py-2 text-[11px] transition sm:text-xs ${
+                  active
+                    ? 'bg-accent/15 text-accent-deep'
+                    : 'text-ink-muted hover:bg-accent/5 hover:text-ink'
                 }`}
               >
+                <span className="truncate font-medium">{item.label}</span>
                 <span
-                  className={`h-1 w-1 rounded-full ${
+                  className={`mt-1 h-0.5 w-4 rounded-full transition ${
                     active ? 'bg-accent-deep' : 'bg-transparent'
                   }`}
                   aria-hidden
                 />
-                <span className="truncate font-medium">{item.label}</span>
               </NavLink>
             )
           })}

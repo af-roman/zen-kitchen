@@ -19,7 +19,7 @@ export function RecipeStoragePanel({
   storageInstructions?: string
 }) {
   return (
-    <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+    <section className="mb-5 card-elevated p-4">
       <h2 className="mb-3 text-lg">Storage</h2>
       <p className="mb-3 text-sm font-medium text-ink">
         {formatStorageSummary({ fridgeDays, freezerDays, storageDays, storageEnv })}
@@ -51,7 +51,7 @@ export function RecipeStorageFields({
   footer?: ReactNode
 }) {
   return (
-    <section className="space-y-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+    <section className="space-y-3 card-elevated p-4">
       <h2 className="text-lg">Storage</h2>
       <p className="text-sm text-ink-muted">
         Set how long leftovers keep in each place. Leave a field at 0 to skip that option. When you

@@ -105,7 +105,7 @@ export function BackupPage() {
 
       <CloudSyncPanel />
 
-      <section className="mt-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4 text-sm text-ink-muted">
+      <section className="mt-5 card-elevated p-4 text-sm text-ink-muted">
         <h2 className="mb-2 font-display text-lg text-accent-deep">Starter catalog workflow</h2>
         <ol className="list-decimal space-y-1.5 pl-5">
           <li>Empty kitchens load the starter recipes automatically on first open.</li>

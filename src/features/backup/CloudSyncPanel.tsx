@@ -27,7 +27,7 @@ export function CloudSyncPanel() {
 
   if (!sync.configured) {
     return (
-      <section className="mt-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4 text-sm text-ink-muted">
+      <section className="mt-5 card-elevated p-4 text-sm text-ink-muted">
         <h2 className="mb-2 font-display text-lg text-accent-deep">Cloud sync</h2>
         <p>
           Set <code className="text-ink">VITE_SUPABASE_URL</code> and{' '}
@@ -39,7 +39,7 @@ export function CloudSyncPanel() {
   }
 
   return (
-    <section className="mt-5 space-y-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+    <section className="mt-5 space-y-3 card-elevated p-4">
       <h2 className="font-display text-lg text-accent-deep">Cloud sync</h2>
       <p className="text-sm text-ink-muted">
         One private snapshot in your Supabase project. Plan on the laptop, cook or shop on the phone

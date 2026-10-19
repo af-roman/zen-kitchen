@@ -80,7 +80,7 @@ export function GoalsPage() {
             />
           </Field>
         </div>
-        <div className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <div className="card-elevated p-4">
           <p className="mb-3 text-sm text-ink-muted">Preview vs a full day at goal</p>
           <MacroBar
             goals={draft}

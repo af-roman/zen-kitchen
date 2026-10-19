@@ -26,7 +26,7 @@ export function CookLogPage() {
             <li key={log.id}>
               <button
                 type="button"
-                className="w-full rounded-[var(--radius-card)] border border-line bg-paper-elevated px-3 py-3 text-left"
+                className="w-full card-elevated px-3 py-3 text-left"
                 onClick={() => {
                   setOpenId(log.id!)
                   setNotes(log.notes)

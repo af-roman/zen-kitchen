@@ -37,9 +37,10 @@ export function Button({
   onClick?: () => void
 }) {
   const styles = {
-    primary: 'bg-accent-deep text-paper-elevated hover:bg-ink',
-    secondary: 'bg-paper border border-line text-ink hover:border-accent',
-    ghost: 'bg-transparent text-ink-muted hover:text-ink',
+    primary: 'bg-accent-deep text-paper-elevated hover:bg-ink shadow-sm',
+    secondary:
+      'bg-accent/10 border border-accent/40 text-accent-deep hover:bg-accent/15 hover:border-accent/55',
+    ghost: 'bg-transparent text-ink-muted hover:bg-line/40 hover:text-ink',
     danger: 'bg-danger/10 text-danger hover:bg-danger/15',
   }[variant]
   return (
@@ -198,7 +199,7 @@ export function EmptyState({
   actions?: ReactNode
 }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-dashed border-line px-6 py-10 text-center">
+    <div className="rounded-[var(--radius-card)] border border-dashed border-line/90 bg-paper-elevated/60 px-6 py-10 text-center">
       <p className="font-display text-lg text-accent-deep">{title}</p>
       {body ? <p className="mt-2 text-sm text-ink-muted">{body}</p> : null}
       {actions ? (
@@ -230,7 +231,7 @@ export function SegmentedControl<T extends string>({
 }) {
   return (
     <div
-      className={`flex rounded-lg border border-line bg-paper-elevated p-0.5 ${className}`}
+      className={`flex rounded-lg border border-line bg-paper p-0.5 shadow-sm ${className}`}
       role="group"
     >
       {options.map((opt) => {
@@ -243,7 +244,7 @@ export function SegmentedControl<T extends string>({
             className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
               active
                 ? 'bg-accent-deep text-paper-elevated shadow-sm'
-                : 'text-ink-muted hover:text-ink'
+                : 'text-ink-muted hover:bg-accent/5 hover:text-ink'
             }`}
           >
             {opt.label}

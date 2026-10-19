@@ -294,7 +294,7 @@ function RecipeRow({
     <li>
       <Link
         to={`/recipes/${recipe.id}`}
-        className="flex gap-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-3 transition hover:border-accent/40"
+        className="flex gap-3 card-elevated p-3 transition hover:border-accent/40"
       >
         <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-line/40">
           {recipe.imageDataUrl ? (

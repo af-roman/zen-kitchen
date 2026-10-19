@@ -4,10 +4,10 @@
   --font-display: "Newsreader", Georgia, serif;
   --font-sans: "Source Sans 3", system-ui, sans-serif;
   --color-ink: #2a2e2b;
-  --color-ink-muted: #5c6560;
+  --color-ink-muted: #4a524c;
   --color-paper: #f4f1ec;
   --color-paper-elevated: #faf8f5;
-  --color-line: #ddd6cb;
+  --color-line: #cfc6b8;
   --color-accent: #6b7f72;
   --color-accent-deep: #3d4a3f;
   --color-warn: #a86b3c;
@@ -16,6 +16,7 @@
   --color-plan-session: #3d4a3f;
   --color-plan-meal: #c24e42;
   --radius-card: 0.875rem;
+  --shadow-card: 0 1px 2px rgba(42, 46, 43, 0.04), 0 4px 14px rgba(42, 46, 43, 0.05);
 }
 
 @layer base {
@@ -64,6 +65,22 @@
 }
 
 @layer utilities {
+  /* Neutral data / list surfaces */
+  .card-elevated {
+    border-radius: var(--radius-card);
+    border: 1px solid var(--color-line);
+    background-color: var(--color-paper-elevated);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Primary next-step / autopilot panels */
+  .panel-action {
+    border-radius: var(--radius-card);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
+    border-left: 3px solid var(--color-accent-deep);
+    background-color: color-mix(in srgb, var(--color-accent) 8%, var(--color-paper));
+  }
+
   .page-enter {
     animation: page-fade 280ms ease-out;
   }

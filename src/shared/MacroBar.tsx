@@ -50,10 +50,10 @@ export function MacroBar({
                 {over ? ` (+${overBy})` : ''}
               </span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-line/70">
+            <div className="h-2 overflow-hidden rounded-full bg-line/80">
               <div
                 className={`h-full rounded-full transition-[width] duration-500 ease-out ${
-                  over ? 'bg-warn' : 'bg-accent'
+                  over ? 'bg-warn' : 'bg-accent-deep'
                 }`}
                 style={{ width: `${Math.min(100, pct)}%` }}
               />

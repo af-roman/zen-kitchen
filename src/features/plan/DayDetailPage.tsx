@@ -174,7 +174,7 @@ export function DayDetailPage() {
         </div>
       ) : null}
 
-      <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+      <section className="mb-5 card-elevated p-4">
         <h2 className="mb-2 text-lg">Day nutrition</h2>
         <MacroBar
           nutrition={dayNutrition}
@@ -333,7 +333,7 @@ export function DayDetailPage() {
       </section>
 
       {dishRows.length > 0 ? (
-        <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <section className="mb-5 card-elevated p-4">
           <h2 className="mb-1 text-lg">Dish breakdown</h2>
           <p className="mb-4 text-xs text-ink-muted">
             Each dish on this day — meal totals are under Eat above.

@@ -51,11 +51,11 @@ export function NotebookPage() {
         title="Notebook"
         subtitle="A light glance at nutrition and kitchen rhythm."
       />
-      <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+      <section className="mb-5 card-elevated p-4">
         <h2 className="mb-3 text-lg">Today</h2>
         <MacroBar nutrition={todayN} goals={goals} />
       </section>
-      <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+      <section className="mb-5 card-elevated p-4">
         <h2 className="mb-3 text-lg">7-day average</h2>
         <MacroBar nutrition={weekAvg} goals={goals} />
       </section>

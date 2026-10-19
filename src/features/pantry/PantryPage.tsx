@@ -11,6 +11,7 @@ import {
 } from '@/domain/types'
 import { isLowStock, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
+import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appConfirm } from '@/shared/dialog'
 import { assetUrl } from '@/shared/assetUrl'
@@ -153,7 +154,7 @@ export function PantryPage() {
                 <button
                   type="button"
                   onClick={() => startEdit(item)}
-                  className="flex w-full gap-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-3 text-left transition hover:border-accent/40"
+                  className="flex w-full gap-3 card-elevated p-3 text-left transition hover:border-accent/40"
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
                     {item.imageDataUrl ? (
@@ -242,10 +243,11 @@ function PantryItemSheet({
         },
       )
     } else {
-      setIngredientId(ingredients[0]?.id ?? 0)
+      const first = ingredients[0]
+      setIngredientId(first?.id ?? 0)
       setBrand('')
       setAmountLeft(0)
-      setExpiryDate('')
+      setExpiryDate(suggestedExpiryFromIngredient(first) ?? '')
       setImageDataUrl(undefined)
       setOverride(false)
     }
@@ -288,7 +290,14 @@ function PantryItemSheet({
             title="Ingredient"
             value={editing ? editing.ingredientId : ingredientId}
             disabled={Boolean(editing)}
-            onChange={setIngredientId}
+            onChange={(id) => {
+              setIngredientId(id)
+              if (!editing && !expiryDate) {
+                const next = ingredients.find((i) => i.id === id)
+                const suggested = suggestedExpiryFromIngredient(next)
+                if (suggested) setExpiryDate(suggested)
+              }
+            }}
             options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
           />
         </Field>

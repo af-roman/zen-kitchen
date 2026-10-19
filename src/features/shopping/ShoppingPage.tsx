@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   endOfMonth,
@@ -11,6 +12,7 @@ import {
 import { db } from '@/db/database'
 import type { Restock, RestockLine, ShoppingListItem } from '@/domain/types'
 import { isAlwaysAvailable, isLowStock, todayISO, uid } from '@/domain/kitchen'
+import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
 import { stockTotals } from '@/domain/recipeMath'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appAlert, appConfirm } from '@/shared/dialog'
@@ -27,12 +29,14 @@ type RestockPrefill = {
 }
 
 export function ShoppingPage() {
+  const navigate = useNavigate()
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
   const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
   const restocks = useLiveQuery(() => db.restocks.orderBy('date').reverse().toArray(), []) ?? []
   const openLists =
     useLiveQuery(() => db.shoppingLists.where('status').equals('open').toArray(), []) ?? []
   const shoppingList = openLists[0] ?? null
+  const listCount = shoppingList?.items.length ?? 0
 
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
   const stock = useMemo(() => stockTotals(pantry), [pantry])
@@ -213,6 +217,7 @@ export function ShoppingPage() {
       brand: i.brand,
       amount: i.amount,
       cost: i.cost,
+      expiryDate: suggestedExpiryFromIngredient(ingById.get(i.ingredientId)),
     }))
     setEditing(null)
     setPrefill({
@@ -281,12 +286,26 @@ export function ShoppingPage() {
         }
       />
 
+      {listCount > 0 ? (
+        <p className="mb-4 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
+          Open list · {listCount} item{listCount === 1 ? '' : 's'} from your week plan (or manual
+          adds).{' '}
+          <button
+            type="button"
+            className="text-accent-deep underline"
+            onClick={() => navigate('/')}
+          >
+            Back to Plan
+          </button>
+        </p>
+      ) : null}
+
       <div className="mb-5 grid grid-cols-2 gap-3">
-        <div className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <div className="card-elevated p-4">
           <p className="text-xs text-ink-muted">This week</p>
           <p className="font-display text-2xl text-accent-deep">{spendWeek.toFixed(0)} Kč</p>
         </div>
-        <div className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <div className="card-elevated p-4">
           <p className="text-xs text-ink-muted">This month</p>
           <p className="font-display text-2xl text-accent-deep">{spendMonth.toFixed(0)} Kč</p>
         </div>
@@ -474,7 +493,7 @@ export function ShoppingPage() {
                 <button
                   type="button"
                   onClick={() => startEditRestock(r)}
-                  className="w-full rounded-[var(--radius-card)] border border-line bg-paper-elevated px-3 py-3 text-left transition hover:border-accent/40"
+                  className="w-full card-elevated px-3 py-3 text-left transition hover:border-accent/40"
                 >
                   <div className="flex justify-between gap-2">
                     <span className="font-medium">{format(parseISO(r.date), 'd MMM yyyy')}</span>
@@ -674,7 +693,7 @@ function RestockSheet({
 }: {
   open: boolean
   onClose: () => void
-  ingredients: { id?: number; name: string; unit: string }[]
+  ingredients: { id?: number; name: string; unit: string; rawFridgeDays?: number }[]
   editing: Restock | null
   prefill: RestockPrefill | null
   onSavedFromShoppingList?: (shoppingListId: number, purchasedItemIds: string[]) => void
@@ -857,7 +876,15 @@ function RestockSheet({
                   value={line.ingredientId}
                   onChange={(ingredientId) => {
                     const next = [...lines]
-                    next[idx] = { ...line, ingredientId }
+                    const ing = ingredients.find((i) => i.id === ingredientId)
+                    next[idx] = {
+                      ...line,
+                      ingredientId,
+                      expiryDate:
+                        line.expiryDate ||
+                        suggestedExpiryFromIngredient(ing) ||
+                        undefined,
+                    }
                     setLines(next)
                   }}
                   options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}

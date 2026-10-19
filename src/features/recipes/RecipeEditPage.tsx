@@ -6,9 +6,11 @@ import {
   DISH_CATEGORIES,
   EFFORT_LEVELS,
   INGREDIENT_CATEGORIES,
+  MEAL_ROLES,
   PREPARATION_TECHNIQUES,
   type DishCategory,
   type Effort,
+  type MealRole,
   type MeasureUnit,
   type PreparationTechnique,
   type Recipe,
@@ -16,6 +18,7 @@ import {
   type RecipeKind,
   type RecipeStep,
 } from '@/domain/types'
+import { mealRolesFromCategory, recipeMealRoles } from '@/domain/mealRoles'
 import { recipeKindOf, uid } from '@/domain/kitchen'
 import { recipeCategory, recipeTechnique } from '@/domain/dishTaxonomy'
 import { readRecipeStorageDays, recipeStorageFields, recipeStorageOptions } from '@/domain/storage'
@@ -44,6 +47,7 @@ import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
 import { appAlert, appPrompt } from '@/shared/dialog'
 import { Checkbox, NumberField, SelectField } from '@/shared/forms'
 import { AutoTextarea, Button, Field, PageHeader, RemoveButton, inputClass } from '@/shared/ui'
+import { ImportFromUrlSheet } from '@/features/recipes/ImportFromUrlSheet'
 
 /** Earliest stage first, preserving each step’s relative order inside its stage. */
 function orderStepsByStage(steps: RecipeStep[]): RecipeStep[] {
@@ -67,6 +71,7 @@ export function RecipeEditPage() {
     [recipeId],
   )
   const ingredients = useLiveQuery(() => db.ingredients.orderBy('name').toArray(), []) ?? []
+  const allRecipes = useLiveQuery(() => db.recipes.orderBy('name').toArray(), []) ?? []
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -77,12 +82,14 @@ export function RecipeEditPage() {
   const [yieldIngredientId, setYieldIngredientId] = useState(0)
   const [yieldAmount, setYieldAmount] = useState(0)
   const [category, setCategory] = useState<DishCategory>('other')
+  const [mealRoles, setMealRoles] = useState<MealRole[]>(() => mealRolesFromCategory('other'))
   const [technique, setTechnique] = useState<PreparationTechnique>('other')
   const [effort, setEffort] = useState<Effort>('easy')
   const [portions, setPortions] = useState(4)
   const [fridgeDays, setFridgeDays] = useState(3)
   const [freezerDays, setFreezerDays] = useState(0)
   const [storageInstructions, setStorageInstructions] = useState('')
+  const [repurposesFromRecipeIds, setRepurposesFromRecipeIds] = useState<number[]>([])
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>()
   const [lines, setLines] = useState<RecipeIngredientLine[]>([])
   const [steps, setSteps] = useState<RecipeStep[]>([
@@ -95,6 +102,7 @@ export function RecipeEditPage() {
   /** New recipes start simple; edit always uses the full form. */
   const [advanced, setAdvanced] = useState(!isNew)
   const [quickStepsText, setQuickStepsText] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
 
   const yieldIng = ingredients.find((i) => i.id === yieldIngredientId)
   const isPrep = recipeKind === 'prep'
@@ -166,6 +174,46 @@ export function RecipeEditPage() {
     }
   }
 
+  /** Move a step into another subrecipe, keeping steps of each group consecutive. */
+  function moveStepToGroup(stepId: string, group: string) {
+    const trimmed = group.trim() || DEFAULT_SUBRECIPE
+    const current = ensureStepGroups(steps)
+    const step = current.find((s) => s.id === stepId)
+    if (!step || (step.group?.trim() || DEFAULT_SUBRECIPE) === trimmed) return
+
+    const without = current.filter((s) => s.id !== stepId)
+    const peer = without.find((s) => (s.group?.trim() || DEFAULT_SUBRECIPE) === trimmed)
+    const moved: RecipeStep = {
+      ...step,
+      group: trimmed,
+      daysAhead: peer?.daysAhead ?? step.daysAhead,
+    }
+
+    let insertAt = without.length
+    for (let i = without.length - 1; i >= 0; i--) {
+      if ((without[i]!.group?.trim() || DEFAULT_SUBRECIPE) === trimmed) {
+        insertAt = i + 1
+        break
+      }
+    }
+    const next = [...without]
+    next.splice(insertAt, 0, moved)
+    setSteps(next)
+  }
+
+  const subrecipeNames = useMemo(() => {
+    const names: string[] = []
+    const seen = new Set<string>()
+    for (const s of ensureStepGroups(steps)) {
+      const n = s.group!.trim()
+      if (!seen.has(n)) {
+        seen.add(n)
+        names.push(n)
+      }
+    }
+    return names
+  }, [steps])
+
   useEffect(() => {
     if (!existing) return
     setName(existing.name)
@@ -180,6 +228,7 @@ export function RecipeEditPage() {
     setYieldIngredientId(existing.yieldIngredientId ?? ingredients[0]?.id ?? 0)
     setYieldAmount(existing.yieldAmount ?? 0)
     setCategory(recipeCategory(existing))
+    setMealRoles(recipeMealRoles(existing))
     setTechnique(recipeTechnique(existing))
     setEffort(existing.effort)
     setPortions(existing.portions)
@@ -187,6 +236,7 @@ export function RecipeEditPage() {
     setFridgeDays(stored.fridgeDays)
     setFreezerDays(stored.freezerDays)
     setStorageInstructions(existing.storageInstructions ?? '')
+    setRepurposesFromRecipeIds(existing.repurposesFromRecipeIds ?? [])
     setImageDataUrl(existing.imageDataUrl)
     setLines(existing.ingredients)
     setSteps(
@@ -254,11 +304,13 @@ export function RecipeEditPage() {
       yieldIngredientId: isPrep ? yieldIngredientId : undefined,
       yieldAmount: isPrep ? yieldAmount : undefined,
       category,
+      mealRoles: mealRoles.length ? mealRoles : mealRolesFromCategory(category),
       technique,
       effort,
       portions,
       storageInstructions: storageInstructions.trim() || undefined,
       ...recipeStorageFields(fridgeDays, freezerDays),
+      repurposesFromRecipeIds: isPrep ? undefined : [...new Set(repurposesFromRecipeIds)],
       imageDataUrl,
       ingredients: lines.map((line) => {
         const ing = ingredients.find((i) => i.id === line.ingredientId)!
@@ -304,6 +356,17 @@ export function RecipeEditPage() {
         }
       />
       <div className="space-y-4">
+        {isNew ? (
+          <div className="card-elevated p-3">
+            <p className="mb-2 text-sm text-ink-muted">
+              Pull structured recipe data from a website (schema.org JSON-LD), map ingredients, then
+              finish editing here.
+            </p>
+            <Button variant="secondary" className="w-full" onClick={() => setImportOpen(true)}>
+              Import from URL
+            </Button>
+          </div>
+        ) : null}
         {quickMode ? (
           <p className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
             Fridge storage defaults to 3 days. You can change that below or open full details anytime.
@@ -395,10 +458,44 @@ export function RecipeEditPage() {
                 <SelectField
                   title={isPrep ? 'Category' : 'Dish category'}
                   value={category}
-                  onChange={setCategory}
+                  onChange={(next) => {
+                    setCategory(next)
+                    setMealRoles((prev) => {
+                      const inferredBefore = mealRolesFromCategory(category)
+                      const same =
+                        prev.length === inferredBefore.length &&
+                        prev.every((r) => inferredBefore.includes(r))
+                      return same ? mealRolesFromCategory(next) : prev
+                    })
+                  }}
                   options={DISH_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
                 />
               </Field>
+              {!isPrep ? (
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Meal roles"
+                    hint="How this dish fills 一汁三菜 / bento. Defaults from category."
+                  >
+                    <div className="flex flex-wrap gap-3">
+                      {MEAL_ROLES.map((role) => (
+                        <Checkbox
+                          key={role.id}
+                          checked={mealRoles.includes(role.id)}
+                          label={role.label}
+                          onChange={(on) => {
+                            setMealRoles((prev) =>
+                              on
+                                ? [...new Set([...prev, role.id])]
+                                : prev.filter((r) => r !== role.id),
+                            )
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </Field>
+                </div>
+              ) : null}
               <Field label="Technique">
                 <SelectField
                   title="Technique"
@@ -686,6 +783,7 @@ export function RecipeEditPage() {
                 </p>
                 {section.steps.map((step, localIdx) => {
                   const idx = steps.findIndex((s) => s.id === step.id)
+                  const stepGroup = step.group?.trim() || DEFAULT_SUBRECIPE
                   return (
                     <div key={step.id} className="rounded-lg border border-line bg-paper-elevated p-3">
                       <Field label={`${displayName} · step ${localIdx + 1}`}>
@@ -699,6 +797,41 @@ export function RecipeEditPage() {
                           }}
                         />
                       </Field>
+                      <div className="mt-2">
+                        <Field label="Subrecipe" hint="Move this step into another part of the cook.">
+                          <SelectField<string>
+                            title="Subrecipe"
+                            value={stepGroup}
+                            onChange={async (nextGroup) => {
+                              if (nextGroup === '__new__') {
+                                const name = await appPrompt(
+                                  'Name for the subrecipe this step should move to.',
+                                  {
+                                    title: 'New subrecipe',
+                                    placeholder: 'Sauce',
+                                    confirmLabel: 'Move',
+                                  },
+                                )
+                                if (name === null) return
+                                const group = name.trim()
+                                if (!group) {
+                                  await appAlert('Subrecipe name is required.', {
+                                    title: 'Cannot move',
+                                  })
+                                  return
+                                }
+                                moveStepToGroup(step.id, group)
+                                return
+                              }
+                              moveStepToGroup(step.id, nextGroup)
+                            }}
+                            options={[
+                              ...subrecipeNames.map((n) => ({ id: n, label: n })),
+                              { id: '__new__', label: 'New subrecipe…' },
+                            ]}
+                          />
+                        </Field>
+                      </div>
                       <ImageUploadField
                         label="Step photo"
                         hint="Optional — tap the photo while cooking to open the gallery."
@@ -863,6 +996,43 @@ export function RecipeEditPage() {
         </section>
         )}
 
+        {!isPrep && !quickMode ? (
+          <section className="space-y-2">
+            <h2 className="text-lg">Leftover transforms</h2>
+            <p className="text-sm text-ink-muted">
+              This dish can use leftovers from the selected cooks (e.g. onigiri from teriyaki
+              chicken). The week planner may schedule it the next day instead of repeating the
+              same dish.
+            </p>
+            <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
+              {allRecipes
+                .filter(
+                  (r) =>
+                    r.id != null &&
+                    r.id !== recipeId &&
+                    recipeKindOf(r) === 'dish',
+                )
+                .map((r) => {
+                  const id = r.id!
+                  const checked = repurposesFromRecipeIds.includes(id)
+                  return (
+                    <li key={id}>
+                      <Checkbox
+                        checked={checked}
+                        label={r.name}
+                        onChange={(on) => {
+                          setRepurposesFromRecipeIds((prev) =>
+                            on ? [...prev, id] : prev.filter((x) => x !== id),
+                          )
+                        }}
+                      />
+                    </li>
+                  )
+                })}
+            </ul>
+          </section>
+        ) : null}
+
         <RecipeStorageFields
           fridgeDays={fridgeDays}
           freezerDays={freezerDays}
@@ -898,6 +1068,26 @@ export function RecipeEditPage() {
         onClose={() => setIngredientPicker(null)}
         onSelect={applyPickedIngredient}
       />
+
+      {isNew ? (
+        <ImportFromUrlSheet
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          ingredients={ingredients}
+          onApply={(draft) => {
+            setName(draft.name)
+            setDescription(draft.description)
+            setSource(draft.source)
+            setPortions(draft.portions)
+            if (draft.category) setCategory(draft.category)
+            if (draft.mealRoles?.length) setMealRoles(draft.mealRoles)
+            setLines(draft.lines)
+            setSteps(draft.steps)
+            setQuickStepsText(draft.quickStepsText)
+            setAdvanced(true)
+          }}
+        />
+      ) : null}
     </div>
   )
 }

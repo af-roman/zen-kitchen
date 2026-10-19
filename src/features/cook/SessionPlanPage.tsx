@@ -15,6 +15,8 @@ import {
 import { isPastDate } from '@/domain/servings'
 import { appAlert } from '@/shared/dialog'
 import { reservedIngredientUsage, stockTotals } from '@/domain/recipeMath'
+import { addShortfallsToShopping, sessionShortfalls } from '@/db/shoppingOps'
+import { weekFillFromSessionId } from '@/db/weekFillFromSession'
 import {
   dishStage,
   isPrepLeg,
@@ -387,7 +389,7 @@ export function SessionPlanPage() {
           </section>
         ) : null}
 
-        <section className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <section className="card-elevated p-4">
           <h2 className="mb-2 text-lg">Ingredients needed</h2>
           <p className="mb-2 text-xs text-ink-muted">
             Amounts are in pantry stock units (g / ml / pcs). Available = pantry now minus other
@@ -420,8 +422,46 @@ export function SessionPlanPage() {
             </ul>
           )}
           {needs.some((n) => n.low) ? (
-            <div className="mt-3">
+            <div className="mt-3 space-y-2">
               <WarnBanner>Some items are low or short for this session.</WarnBanner>
+              <Button
+                className="w-full"
+                variant="secondary"
+                onClick={() => {
+                  void (async () => {
+                    const draftSession: CookingSession = {
+                      id: editId ?? undefined,
+                      date,
+                      status: 'planned',
+                      dishes,
+                      notes: '',
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString(),
+                    }
+                    const lines = sessionShortfalls(
+                      draftSession,
+                      sessions,
+                      recipeById,
+                      pantry,
+                      ingById,
+                      today,
+                    )
+                    if (lines.length === 0) {
+                      await appAlert('Nothing missing once reserved stock is counted.', {
+                        title: 'Shop',
+                      })
+                      return
+                    }
+                    const { added, updated } = await addShortfallsToShopping(lines)
+                    await appAlert(`Shopping updated: ${added} new, ${updated} adjusted.`, {
+                      title: 'Added to Shop',
+                    })
+                    navigate('/shopping')
+                  })()
+                }}
+              >
+                Add missing to Shop
+              </Button>
             </div>
           ) : null}
         </section>
@@ -484,17 +524,78 @@ export function SessionPlanPage() {
             <Button
               className="w-full"
               onClick={() => {
+                void (async () => {
+                  const id = savedOffer.id
+                  try {
+                    const result = await weekFillFromSessionId(id)
+                    setSavedOffer(null)
+                    await appAlert(
+                      result.mealsWritten > 0
+                        ? `Filled ${result.mealsWritten} meal slot${result.mealsWritten === 1 ? '' : 's'} (${result.portionsAssigned} portions). Empty slots only — existing meals were left alone.`
+                        : 'No empty meal slots to fill (or no dish portions left). You can still assign manually.',
+                      { title: 'Week fill' },
+                    )
+                    navigate('/')
+                  } catch (e) {
+                    await appAlert(e instanceof Error ? e.message : 'Week fill failed', {
+                      title: 'Week fill',
+                    })
+                  }
+                })()
+              }}
+            >
+              Fill my week
+            </Button>
+          ) : null}
+          {savedOffer ? (
+            <Button
+              className="w-full"
+              variant="secondary"
+              onClick={() => {
+                void (async () => {
+                  const session = await db.cookingSessions.get(savedOffer.id)
+                  if (!session) return
+                  const lines = sessionShortfalls(
+                    session,
+                    sessions,
+                    recipeById,
+                    pantry,
+                    ingById,
+                    today,
+                  )
+                  if (lines.length === 0) {
+                    await appAlert('Nothing missing for this session.', { title: 'Shop' })
+                    return
+                  }
+                  const { added, updated } = await addShortfallsToShopping(lines)
+                  setSavedOffer(null)
+                  await appAlert(
+                    `Shopping updated: ${added} new, ${updated} adjusted.`,
+                    { title: 'Added to Shop' },
+                  )
+                  navigate('/shopping')
+                })()
+              }}
+            >
+              Add missing to Shop
+            </Button>
+          ) : null}
+          {savedOffer?.canServe ? (
+            <Button
+              className="w-full"
+              variant="secondary"
+              onClick={() => {
                 const id = savedOffer.id
                 setSavedOffer(null)
                 navigate(`/serve?sessionId=${id}`)
               }}
             >
-              Assign to meals
+              Assign meals manually
             </Button>
           ) : null}
           <Button
             className="w-full"
-            variant={savedOffer?.canServe ? 'secondary' : 'primary'}
+            variant="ghost"
             onClick={() => {
               setSavedOffer(null)
               navigate('/')

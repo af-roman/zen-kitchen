@@ -135,6 +135,16 @@ export interface Ingredient {
   nutritionPer100: Nutrition
   lowStockThreshold: number
   /**
+   * Typical purchase pack size in the ingredient’s stock unit (g / ml / pcs).
+   * Used to round shopping shortfalls up to whole packs.
+   */
+  packSize?: number
+  /**
+   * Days a raw pack keeps in the fridge after purchase/open.
+   * Used for “use soon” hints and week-planner scoring.
+   */
+  rawFridgeDays?: number
+  /**
    * Always on hand (e.g. tap water) — never requires pantry stock,
    * never deducted, and never listed as low stock.
    */
@@ -180,6 +190,17 @@ export interface RecipeStep {
 
 export type RecipeKind = 'dish' | 'prep'
 
+/** How a dish can fill a composed meal pattern (一汁三菜 / bento). */
+export type MealRole = 'staple' | 'soup' | 'main' | 'side' | 'pickle'
+
+export const MEAL_ROLES: { id: MealRole; label: string }[] = [
+  { id: 'staple', label: 'Staple (rice etc.)' },
+  { id: 'soup', label: 'Soup' },
+  { id: 'main', label: 'Main' },
+  { id: 'side', label: 'Side' },
+  { id: 'pickle', label: 'Pickle / relish' },
+]
+
 export interface Recipe {
   id?: number
   name: string
@@ -197,6 +218,10 @@ export interface Recipe {
   /** Prep only: amount yielded at the recipe’s base scale (ingredient unit) */
   yieldAmount?: number
   category: DishCategory
+  /**
+   * Roles this dish can play in meal patterns. When omitted, inferred from category.
+   */
+  mealRoles?: MealRole[]
   /** Primary cooking method; older recipes may omit this (inferred from legacy category). */
   technique?: PreparationTechnique
   effort: Effort
@@ -213,6 +238,11 @@ export interface Recipe {
   fridgeDays?: number
   /** Days the dish keeps in the freezer; omit or 0 if freezer storage is not offered. */
   freezerDays?: number
+  /**
+   * Dish recipes whose leftovers this dish can use as a next-day transform
+   * (e.g. onigiri lists teriyaki chicken). Used by the week planner only.
+   */
+  repurposesFromRecipeIds?: number[]
   /**
    * @deprecated Prefer fridgeDays / freezerDays.
    * Still read for older saved recipes.

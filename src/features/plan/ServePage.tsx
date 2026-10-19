@@ -31,6 +31,7 @@ import {
 import { recipeNutrition } from '@/domain/recipeMath'
 import { isPrepLeg } from '@/domain/stages'
 import { isPrepRecipe, todayISO, uid } from '@/domain/kitchen'
+import { pantryCandidatesForIngredient } from '@/domain/pantryOrder'
 import { maxStorageDays } from '@/domain/storage'
 import {
   applyServingItemAllocations,
@@ -372,7 +373,7 @@ export function ServePage() {
           </Field>
         </div>
 
-        <section className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <section className="card-elevated p-4">
           <h2 className="mb-1 text-lg">This day</h2>
           <p className="mb-3 text-xs text-ink-muted">
             What’s already planned, and which meals still need dishes.
@@ -713,7 +714,7 @@ export function ServePage() {
           )}
         </section>
 
-        <section className="rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <section className="card-elevated p-4">
           <h2 className="mb-1 text-lg">Nutrition</h2>
           <p className="mb-4 text-xs text-ink-muted">
             Dishes in this meal, the meal total, and the whole day — so you can balance as you
@@ -906,7 +907,7 @@ function AdhocFoodSheet({
     )
     const ingredientId = withStock?.id ?? ingredients[0]?.id
     if (ingredientId == null) return
-    const candidates = pantry.filter((p) => p.ingredientId === ingredientId && p.amountLeft > 0)
+    const candidates = pantryCandidatesForIngredient(pantry, ingredientId)
     setUsage([
       ...usage,
       {
@@ -1004,7 +1005,7 @@ function AdhocFoodSheet({
               ) : (
                 usage.map((line, idx) => {
                   const ing = ingById.get(line.ingredientId)
-                  const candidates = pantry.filter((p) => p.ingredientId === line.ingredientId)
+                  const candidates = pantryCandidatesForIngredient(pantry, line.ingredientId)
                   return (
                     <div key={idx} className="space-y-2 rounded-lg border border-line p-2">
                       <Field label="Ingredient">
@@ -1012,8 +1013,9 @@ function AdhocFoodSheet({
                           title="Ingredient"
                           value={line.ingredientId}
                           onChange={(ingredientId) => {
-                            const nextCandidates = pantry.filter(
-                              (p) => p.ingredientId === ingredientId && p.amountLeft > 0,
+                            const nextCandidates = pantryCandidatesForIngredient(
+                              pantry,
+                              ingredientId,
                             )
                             const next = [...usage]
                             next[idx] = {
@@ -1040,7 +1042,9 @@ function AdhocFoodSheet({
                               ? [{ id: 0, label: 'No stock' }]
                               : candidates.map((c) => ({
                                   id: c.id!,
-                                  label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit}`,
+                                  label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit}${
+                                    c.expiryDate ? ` · exp ${c.expiryDate}` : ''
+                                  }`,
                                 }))
                           }
                         />

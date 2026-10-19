@@ -7,6 +7,7 @@ import { AppShell } from './app/AppShell'
 import { PlanPage } from './features/plan/PlanPage'
 import { DayDetailPage } from './features/plan/DayDetailPage'
 import { ServePage } from './features/plan/ServePage'
+import { WeekPlannerPage } from './features/plan/WeekPlannerPage'
 import { ReadyPage } from './features/ready/ReadyPage'
 import { RecipesPage } from './features/recipes/RecipesPage'
 import { RecipeDetailPage } from './features/recipes/RecipeDetailPage'
@@ -33,6 +34,7 @@ export default function App() {
                 <Route index element={<PlanPage />} />
                 <Route path="plan/:date" element={<DayDetailPage />} />
                 <Route path="serve" element={<ServePage />} />
+                <Route path="plan-week" element={<WeekPlannerPage />} />
                 <Route path="ready" element={<ReadyPage />} />
                 <Route path="recipes/new" element={<RecipeEditPage />} />
                 <Route path="recipes/:id/edit" element={<RecipeEditPage />} />

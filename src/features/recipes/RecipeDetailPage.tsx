@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { db } from '@/db/database'
 import { EFFORT_LEVELS } from '@/domain/types'
 import { dishCategoryLabel, recipeTechnique, techniqueLabel } from '@/domain/dishTaxonomy'
@@ -34,6 +34,8 @@ import {
 } from '@/shared/StepImageGallery'
 import { normalizeYoutubeUrl } from '@/domain/youtube'
 import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
+import { loadRecipeTaste, setRecipeTaste, type RecipeTaste } from '@/domain/weekPlanner'
+import { recipeMealRoles } from '@/domain/mealRoles'
 import { appConfirm } from '@/shared/dialog'
 import { Badge, Button, WarnBanner } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
@@ -45,12 +47,20 @@ export function RecipeDetailPage() {
   const goals = useGoals()
   const recipe = useLiveQuery(() => db.recipes.get(recipeId), [recipeId])
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
+  const allRecipes = useLiveQuery(() => db.recipes.toArray(), []) ?? []
   const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
   const servings = useLiveQuery(() => db.servings.toArray(), []) ?? []
+  const [taste, setTaste] = useState<RecipeTaste | null>(
+    () => loadRecipeTaste()[String(recipeId)] ?? null,
+  )
+  useEffect(() => {
+    setTaste(loadRecipeTaste()[String(recipeId)] ?? null)
+  }, [recipeId])
   const sessions = useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
   const [galleryStartId, setGalleryStartId] = useState<string | null>(null)
 
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
+  const recipeById = useMemo(() => new Map(allRecipes.map((r) => [r.id!, r])), [allRecipes])
   const stock = useMemo(() => stockTotals(pantry), [pantry])
 
   function close() {
@@ -91,6 +101,7 @@ export function RecipeDetailPage() {
   ].slice(0, 5)
   const stepGalleryItems = galleryItemsFromSteps(r.steps)
   const youtubeHref = normalizeYoutubeUrl(r.youtubeUrl ?? '')
+  const mealRoles = recipeMealRoles(r)
 
   async function startCookNow() {
     if (staged) {
@@ -166,17 +177,50 @@ export function RecipeDetailPage() {
         />
       ) : null}
 
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {prep ? <Badge tone="accent">Prep</Badge> : null}
-        {staged ? <Badge tone="accent">{leadTimeLabel(lead)}</Badge> : null}
-        <Badge>{dishCategoryLabel(r.category)}</Badge>
-        <Badge>{techniqueLabel(recipeTechnique(r))}</Badge>
-        <Badge tone="accent">{EFFORT_LEVELS.find((e) => e.id === r.effort)?.label}</Badge>
-        <Badge>{formatQuantity(r, r.portions)}</Badge>
-        <Badge tone={avail.cookable ? 'ok' : 'warn'}>
-          {avail.available}/{avail.needed} in pantry
-        </Badge>
+      <div className="mb-4 space-y-2">
+        <div className="flex flex-wrap gap-1.5">
+          {prep ? <Badge tone="accent">Prep</Badge> : null}
+          {staged ? <Badge tone="accent">{leadTimeLabel(lead)}</Badge> : null}
+          <Badge>{dishCategoryLabel(r.category)}</Badge>
+          <Badge tone="accent">{EFFORT_LEVELS.find((e) => e.id === r.effort)?.label}</Badge>
+          <Badge tone={avail.cookable ? 'ok' : 'warn'}>
+            {avail.available}/{avail.needed} in pantry
+          </Badge>
+        </div>
+        {mealRoles.length > 0 ? (
+          <p className="text-sm text-ink-muted">Plate roles: {mealRoles.join(' · ')}</p>
+        ) : null}
+        <p className="text-sm text-ink-muted">
+          {techniqueLabel(recipeTechnique(r))} · {formatQuantity(r, r.portions)}
+        </p>
       </div>
+
+      {!prep ? (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Button
+            variant={taste === 'liked' ? 'primary' : 'secondary'}
+            className="!py-1.5"
+            onClick={() => {
+              const next = taste === 'liked' ? null : 'liked'
+              setRecipeTaste(recipeId, next)
+              setTaste(next)
+            }}
+          >
+            Liked
+          </Button>
+          <Button
+            variant={taste === 'skip' ? 'primary' : 'secondary'}
+            className="!py-1.5"
+            onClick={() => {
+              const next = taste === 'skip' ? null : 'skip'
+              setRecipeTaste(recipeId, next)
+              setTaste(next)
+            }}
+          >
+            Skip next time
+          </Button>
+        </div>
+      ) : null}
 
       {r.source ? (
         <p className="mb-4 text-sm text-ink-muted">
@@ -199,7 +243,7 @@ export function RecipeDetailPage() {
       {youtubeHref ? <YoutubeWatchButton href={youtubeHref} className="mb-4" /> : null}
 
       {prep && r.yieldAmount != null && yieldIng ? (
-        <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <section className="mb-5 card-elevated p-4">
           <h2 className="mb-2 text-lg">Pantry yield</h2>
           <p className="text-sm text-ink-muted">
             One cook of {r.portions} {r.portions === 1 ? 'batch' : 'batches'} adds{' '}
@@ -210,7 +254,7 @@ export function RecipeDetailPage() {
           </p>
         </section>
       ) : (
-        <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+        <section className="mb-5 card-elevated p-4">
           <h2 className="mb-3 text-lg">Nutrition per portion</h2>
           <MacroBar
             nutrition={nutrition}
@@ -336,6 +380,32 @@ export function RecipeDetailPage() {
           ))}
         </div>
       </section>
+
+      {!prep && (r.repurposesFromRecipeIds?.length || allRecipes.some((o) => o.repurposesFromRecipeIds?.includes(recipeId))) ? (
+        <section className="mb-5 card-elevated p-4">
+          <h2 className="mb-2 text-lg">Leftover transforms</h2>
+          {r.repurposesFromRecipeIds?.length ? (
+            <p className="mb-2 text-sm text-ink-muted">
+              Uses leftovers from:{' '}
+              {r.repurposesFromRecipeIds
+                .map((id) => recipeById.get(id)?.name ?? `#${id}`)
+                .join(', ')}
+            </p>
+          ) : null}
+          {(() => {
+            const into = allRecipes.filter(
+              (o) => o.id != null && o.repurposesFromRecipeIds?.includes(recipeId),
+            )
+            if (into.length === 0) return null
+            return (
+              <p className="text-sm text-ink-muted">
+                Can become:{' '}
+                {into.map((o) => o.name).join(', ')}
+              </p>
+            )
+          })()}
+        </section>
+      ) : null}
 
       <RecipeStoragePanel
         fridgeDays={r.fridgeDays}

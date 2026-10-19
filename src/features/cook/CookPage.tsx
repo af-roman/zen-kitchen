@@ -41,6 +41,7 @@ import {
   timerToSeconds,
 } from '@/domain/nutrition'
 import { groupRecipeSteps } from '@/domain/recipeMath'
+import { pantryCandidatesForIngredient } from '@/domain/pantryOrder'
 import {
   dishStage,
   isPrepLeg,
@@ -165,7 +166,7 @@ function defaultUsageRow(
   pantry: PantryItem[],
   measureUnit?: MeasureUnit,
 ): UsageRow {
-  const candidates = pantry.filter((p) => p.ingredientId === ingredientId)
+  const candidates = pantryCandidatesForIngredient(pantry, ingredientId)
   return {
     ingredientId,
     pantryItemId: candidates[0]?.id ?? 0,
@@ -555,10 +556,73 @@ function CookSessionView({
                   : 'Session closed. No completed recipes to store.'
                 : null}
             </p>
+            {dishes.some((d) => d.completed && !isPrepLeg(d)) ? (
+              <div className="space-y-2 rounded-lg border border-line p-3">
+                <p className="text-sm font-medium text-ink">Remember for next plans?</p>
+                {dishes
+                  .filter((d) => d.completed && !isPrepLeg(d))
+                  .map((d) => {
+                    const name = recipeById.get(d.recipeId)?.name ?? `Recipe ${d.recipeId}`
+                    return (
+                      <div key={d.recipeId} className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-0 flex-1 text-sm text-ink-muted">{name}</span>
+                        <Button
+                          variant="secondary"
+                          className="!py-1"
+                          onClick={() => {
+                            void import('@/domain/weekPlanner').then(({ setRecipeTaste }) => {
+                              setRecipeTaste(d.recipeId, 'liked')
+                            })
+                          }}
+                        >
+                          Liked
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="!py-1"
+                          onClick={() => {
+                            void import('@/domain/weekPlanner').then(({ setRecipeTaste }) => {
+                              setRecipeTaste(d.recipeId, 'skip')
+                            })
+                          }}
+                        >
+                          Skip
+                        </Button>
+                      </div>
+                    )
+                  })}
+              </div>
+            ) : null}
             {finishNext.addedReadyBatch ? (
               <>
-                <Button className="w-full" onClick={() => navigate('/serve')}>
-                  Serve this week
+                <Button
+                  className="w-full"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const { weekFillFromSessionId } = await import('@/db/weekFillFromSession')
+                        const result = await weekFillFromSessionId(sessionId, {
+                          includeReadyBatches: true,
+                        })
+                        await appAlert(
+                          result.mealsWritten > 0
+                            ? `Filled ${result.mealsWritten} meal slot${result.mealsWritten === 1 ? '' : 's'} (${result.portionsAssigned} portions).`
+                            : 'No empty meal slots to fill.',
+                          { title: 'Week fill' },
+                        )
+                        navigate('/')
+                      } catch (e) {
+                        await appAlert(e instanceof Error ? e.message : 'Week fill failed', {
+                          title: 'Week fill',
+                        })
+                      }
+                    })()
+                  }}
+                >
+                  Fill my week
+                </Button>
+                <Button className="w-full" variant="secondary" onClick={() => navigate('/serve')}>
+                  Assign meals manually
                 </Button>
                 <Button
                   className="w-full"
@@ -763,7 +827,7 @@ function CookSessionView({
           {usageIngredientOrder(dish.usage).map((ingredientId) => {
             const ing = ingById.get(ingredientId)
             const always = isAlwaysAvailable(ing)
-            const candidates = pantry.filter((p) => p.ingredientId === ingredientId)
+            const candidates = pantryCandidatesForIngredient(pantry, ingredientId)
             const rows = usageForIngredient(dish, ingredientId)
             const recipeLine = stageLines.find((l) => l.ingredientId === ingredientId)
             const measure =
@@ -906,7 +970,9 @@ function CookSessionView({
                                       { id: 0, label: 'Select pantry item…' },
                                       ...candidates.map((c) => ({
                                         id: c.id!,
-                                        label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit} left`,
+                                        label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit} left${
+                                          c.expiryDate ? ` · exp ${c.expiryDate}` : ''
+                                        }`,
                                       })),
                                     ]
                               }
@@ -1007,7 +1073,7 @@ function CookSessionView({
         ) : null}
       </section>
 
-      <section className="mb-5 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+      <section className="mb-5 card-elevated p-4">
         <h2 className="mb-3 text-lg">Live nutrition / portion</h2>
         <MacroBar
           nutrition={liveNutrition(dish)}

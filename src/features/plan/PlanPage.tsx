@@ -25,9 +25,10 @@ import {
   mealNutritionFromItems,
   servingItemNeedsFood,
 } from '@/domain/servings'
+import { deriveWeekJourney } from '@/domain/weekJourney'
 import { useGoals } from '@/shared/hooks'
 import { MacroBar } from '@/shared/MacroBar'
-import { Badge, Button, EmptyState, PageHeader, WarnBanner } from '@/shared/ui'
+import { Badge, Button, EmptyState, PageHeader, SegmentedControl, WarnBanner } from '@/shared/ui'
 
 export function PlanPage() {
   const navigate = useNavigate()
@@ -119,6 +120,22 @@ export function PlanPage() {
 
   const hasAnything = sessions.length > 0 || servings.length > 0
 
+  const openLists =
+    useLiveQuery(() => db.shoppingLists.where('status').equals('open').toArray(), []) ?? []
+  const allUpcomingSessions =
+    useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
+
+  const journey = useMemo(
+    () =>
+      deriveWeekJourney({
+        sessions: allUpcomingSessions,
+        shoppingList: openLists[0],
+        hasWeekContent: hasAnything,
+        today,
+      }),
+    [allUpcomingSessions, openLists, hasAnything, today],
+  )
+
   function goToday() {
     setAnchor(today)
   }
@@ -127,28 +144,48 @@ export function PlanPage() {
     navigate(`/plan/${date}`)
   }
 
-  function selectRange(next: Exclude<PlanRange, 'day'> | 'day') {
-    if (next === 'day') {
-      navigate(`/plan/${today}`)
-      return
-    }
-    setRange(next)
-  }
-
   return (
     <div>
       <PageHeader
         title="Plan"
-        subtitle="See what’s cooking and eating — open a day to act."
-        actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button variant="secondary" onClick={() => navigate(`/serve?date=${today}`)}>
-              Serve meals
-            </Button>
-            <Button onClick={() => navigate(`/sessions/new?date=${today}`)}>Plan session</Button>
-          </div>
-        }
+        subtitle="Tell the kitchen what to cook — then shop, cook, and eat."
       />
+
+      <section className="panel-action mb-4 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-display text-xl text-accent-deep sm:text-2xl">{journey.chip}</p>
+            <p className="mt-1 text-sm text-ink-muted">
+              Plan a week → shop → cook sessions → serve meals.
+            </p>
+          </div>
+          <Badge tone="accent">{journey.primary.kind}</Badge>
+        </div>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button
+            className="w-full sm:w-auto sm:min-w-[10rem]"
+            onClick={() => navigate(journey.primary.to)}
+          >
+            {journey.primary.label}
+          </Button>
+          {journey.primary.kind !== 'plan' && journey.primary.kind !== 'replan' ? (
+            <Button
+              variant="secondary"
+              className="w-full sm:w-auto"
+              onClick={() => navigate('/plan-week?autogen=1')}
+            >
+              Plan my week
+            </Button>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          className="mt-3 text-sm text-ink-muted underline decoration-line underline-offset-2 transition hover:text-accent-deep"
+          onClick={() => navigate(`/serve?date=${today}`)}
+        >
+          Serve today
+        </button>
+      </section>
 
       {needsFoodCount > 0 ? (
         <div className="mb-4">
@@ -158,17 +195,23 @@ export function PlanPage() {
         </div>
       ) : null}
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {(['day', 'week', 'month'] as const).map((r) => (
-          <Button
-            key={r}
-            variant={r === 'day' ? 'secondary' : range === r ? 'primary' : 'secondary'}
-            className="!py-1.5 !capitalize"
-            onClick={() => selectRange(r)}
-          >
-            {r}
-          </Button>
-        ))}
+      <div className="mb-4">
+        <SegmentedControl
+          value={range}
+          options={[
+            { id: 'week', label: 'Week' },
+            { id: 'month', label: 'Month' },
+          ]}
+          onChange={(next) => setRange(next)}
+          className="max-w-xs"
+        />
+        <button
+          type="button"
+          className="mt-2 text-sm text-ink-muted underline decoration-line underline-offset-2 transition hover:text-accent-deep"
+          onClick={() => navigate(`/plan/${today}`)}
+        >
+          Open today
+        </button>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -192,7 +235,7 @@ export function PlanPage() {
         </Button>
       </div>
 
-      <section className="mb-4 rounded-[var(--radius-card)] border border-line bg-paper-elevated p-4">
+      <section className="card-elevated mb-4 p-4">
         <h2 className="mb-2 text-lg">
           {range === 'week' ? 'This week’s nutrition' : 'This month’s nutrition'}
         </h2>
@@ -214,12 +257,12 @@ export function PlanPage() {
                 <button
                   type="button"
                   onClick={() => openDay(day.date)}
-                  className={`flex w-full flex-col rounded-[var(--radius-card)] border px-3 py-3 text-left transition sm:min-h-[8.5rem] ${
+                  className={`flex w-full flex-col rounded-[var(--radius-card)] border px-3 py-3 text-left shadow-sm transition sm:min-h-[8.5rem] ${
                     isToday
                       ? 'border-accent bg-accent/10 ring-1 ring-accent/25'
                       : past
-                        ? 'border-line/60 bg-paper-elevated/50'
-                        : 'border-line bg-paper-elevated hover:border-accent/40'
+                        ? 'border-line/70 bg-paper-elevated/50'
+                        : 'border-line bg-paper-elevated hover:border-accent/45'
                   }`}
                 >
                   <div className="flex items-baseline justify-between gap-1">
@@ -329,13 +372,13 @@ export function PlanPage() {
       {!hasAnything ? (
         <div className="mt-6">
           <EmptyState
-            title="A quiet stretch"
-            body="Plan a cooking session, then serve meals through the week."
+            title="No week planned yet"
+            body="Generate a week of cooks, composed meals, and a shopping list from your recipes."
             actions={
               <>
-                <Button onClick={() => navigate(`/sessions/new?date=${today}`)}>Plan session</Button>
-                <Button variant="secondary" onClick={() => navigate(`/serve?date=${today}`)}>
-                  Serve meals
+                <Button onClick={() => navigate('/plan-week?autogen=1')}>Plan my week</Button>
+                <Button variant="secondary" onClick={() => navigate('/recipes/new')}>
+                  Add a recipe
                 </Button>
               </>
             }

@@ -26,6 +26,8 @@ const emptyForm = {
   carbsG: 0,
   proteinG: 0,
   lowStockThreshold: 50,
+  packSize: 0,
+  rawFridgeDays: 0,
 }
 
 export function IngredientsPage() {
@@ -63,6 +65,8 @@ export function IngredientsPage() {
       carbsG: ing.nutritionPer100.carbsG,
       proteinG: ing.nutritionPer100.proteinG,
       lowStockThreshold: ing.lowStockThreshold,
+      packSize: ing.packSize ?? 0,
+      rawFridgeDays: ing.rawFridgeDays ?? 0,
     })
     setCreating(true)
   }
@@ -83,6 +87,8 @@ export function IngredientsPage() {
         form.unit === 'g' ? gramsPerMlFromTbsp(form.gramsPerTbsp) : undefined,
       nutritionPer100: nutrition,
       lowStockThreshold: form.lowStockThreshold,
+      packSize: form.packSize > 0 ? form.packSize : undefined,
+      rawFridgeDays: form.rawFridgeDays > 0 ? form.rawFridgeDays : undefined,
       createdAt: editing?.createdAt ?? new Date().toISOString(),
       alwaysAvailable: editing?.alwaysAvailable,
     }
@@ -147,7 +153,7 @@ export function IngredientsPage() {
           {filtered.map((ing) => (
             <li
               key={ing.id}
-              className="flex items-center justify-between gap-3 rounded-[var(--radius-card)] border border-line bg-paper-elevated px-3 py-3"
+              className="flex items-center justify-between gap-3 card-elevated px-3 py-3"
             >
               <button type="button" className="min-w-0 flex-1 text-left" onClick={() => openEdit(ing)}>
                 <div className="font-medium">{ing.name}</div>
@@ -273,6 +279,29 @@ export function IngredientsPage() {
                   min={0}
                   step={1}
                   onChange={(lowStockThreshold) => setForm({ ...form, lowStockThreshold })}
+                />
+              </Field>
+              <Field
+                label={`Pack size (${form.unit})`}
+                hint="Typical buy size. Shopping rounds shortfalls up to whole packs."
+              >
+                <NumberField
+                  value={form.packSize}
+                  min={0}
+                  step={1}
+                  onChange={(packSize) => setForm({ ...form, packSize })}
+                />
+              </Field>
+              <Field
+                label="Raw fridge life (days)"
+                hint="How long a pack keeps after buy/open. 0 = unknown."
+              >
+                <NumberField
+                  value={form.rawFridgeDays}
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  onChange={(rawFridgeDays) => setForm({ ...form, rawFridgeDays })}
                 />
               </Field>
             </>

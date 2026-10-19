@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { PageHeader } from '@/shared/ui'
 
 const links = [
+  { to: '/plan-week', label: 'Plan my week', hint: 'Heuristic week draft → sessions, meals, shop' },
   { to: '/pantry', label: 'Pantry', hint: 'Stock on hand by ingredient and brand' },
   { to: '/backup', label: 'Backup & sync', hint: 'Cloud sync, export, and restore' },
   { to: '/goals', label: 'Kitchen goals', hint: 'Daily energy and macros' },
@@ -22,7 +23,7 @@ export function MorePage() {
           <li key={link.to}>
             <Link
               to={link.to}
-              className="block rounded-[var(--radius-card)] border border-line bg-paper-elevated px-4 py-3 transition hover:border-accent/40"
+              className="card-elevated block px-4 py-3 transition hover:border-accent/45"
             >
               <div className="font-display text-lg text-accent-deep">{link.label}</div>
               <div className="text-sm text-ink-muted">{link.hint}</div>

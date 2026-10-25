@@ -137,7 +137,7 @@ export function CookTimer({
       } ${alarm ? 'border-warn bg-warn/10' : ''}`}
     >
       {running ? (
-        <div className="font-display text-lg tabular-nums text-accent-deep">
+        <div className="font-display text-lg tabular-nums text-ink">
           {formatDuration(remaining)}
         </div>
       ) : (
@@ -151,7 +151,7 @@ export function CookTimer({
               onChange={(m) => setFromParts(m, seconds)}
             />
           </div>
-          <span className="font-display text-lg text-accent-deep">:</span>
+          <span className="font-display text-lg text-ink">:</span>
           <div className="w-28">
             <NumberField
               value={seconds}

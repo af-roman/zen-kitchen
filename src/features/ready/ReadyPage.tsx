@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
+import { AssignBatchSheet } from '@/features/plan/AssignBatchSheet'
+import { portionIngredientCost } from '@/domain/lotCost'
 import type { BatchStorage, Ingredient, ReadyBatch, Recipe } from '@/domain/types'
 import { dishCategoryLabel } from '@/domain/dishTaxonomy'
 import { appConfirm } from '@/shared/dialog'
 import { DateField, NumberField, SelectField } from '@/shared/forms'
+import { IconPantry, IconServe, IconStock } from '@/shared/icons'
 import { Badge, Button, EmptyState, Field, PageHeader } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
@@ -25,6 +28,7 @@ export function ReadyPage() {
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
 
   const [adjustId, setAdjustId] = useState<number | null>(null)
+  const [assignId, setAssignId] = useState<number | null>(null)
   const batch = batches.find((b) => b.id === adjustId)
 
   const byPlace = useMemo(() => {
@@ -49,25 +53,31 @@ export function ReadyPage() {
   return (
     <div>
       <PageHeader
-        title="Ready to eat"
-        subtitle="Cooked dish portions waiting to be served through the week. Prep stays in the pantry."
+        title="Stock"
+        icon={<IconStock className="h-5 w-5" />}
+        subtitle="Cooked batches ready to serve."
         actions={
-          <Button onClick={() => navigate('/serve')}>Serve</Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" className="gap-1.5" onClick={() => navigate('/pantry')}>
+              <IconPantry className="h-4 w-4" />
+              Pantry
+            </Button>
+            <Button className="gap-1.5" onClick={() => navigate('/serve')}>
+              <IconServe className="h-4 w-4" />
+              Serve
+            </Button>
+          </div>
         }
       />
       {!hasAny ? (
         <EmptyState
           title="Nothing ready yet"
-          body="Finish a cooking session to add batches here."
+          body="Finish a cook session and batches show up here."
           actions={
-            <>
-              <Button onClick={() => navigate(`/sessions/new?date=${todayISO()}`)}>
-                Plan session
-              </Button>
-              <Button variant="secondary" onClick={() => navigate('/serve')}>
-                Serve meals
-              </Button>
-            </>
+            <Button className="gap-2" onClick={() => navigate('/serve')}>
+              <IconServe className="h-4 w-4" />
+              Serve a meal
+            </Button>
           }
         />
       ) : (
@@ -76,7 +86,7 @@ export function ReadyPage() {
             const grouped = [...byPlace[place].entries()]
             return (
               <section key={place}>
-                <h2 className="mb-3 font-display text-2xl text-accent-deep">
+                <h2 className="mb-3 text-xl font-semibold text-ink">
                   {storageLabel(place)}
                 </h2>
                 {grouped.length === 0 ? (
@@ -90,7 +100,7 @@ export function ReadyPage() {
                       return (
                         <li key={`${place}-${recipeId}`}>
                           <h3 className="mb-2 text-lg text-ink">{recipe?.name ?? 'Dish'}</h3>
-                          <ul className="space-y-2">
+                          <ul className="space-y-3">
                             {list.map((b) => (
                               <BatchRow
                                 key={b.id}
@@ -99,6 +109,7 @@ export function ReadyPage() {
                                 recipeById={recipeById}
                                 ingById={ingById}
                                 onAdjust={() => b.id != null && setAdjustId(b.id)}
+                                onAssign={() => b.id != null && setAssignId(b.id)}
                               />
                             ))}
                           </ul>
@@ -123,6 +134,13 @@ export function ReadyPage() {
           navigate(`/sessions/new?recipeId=${recipeId}`)
         }}
       />
+      <AssignBatchSheet
+        open={assignId != null}
+        onClose={() => setAssignId(null)}
+        batches={batches}
+        recipes={recipes}
+        initialBatchId={assignId ?? undefined}
+      />
     </div>
   )
 }
@@ -133,12 +151,14 @@ function BatchRow({
   recipeById,
   ingById,
   onAdjust,
+  onAssign,
 }: {
   batch: ReadyBatch
   recipe?: Recipe
   recipeById: Map<number, Recipe>
   ingById: Map<number, Ingredient>
   onAdjust: () => void
+  onAssign: () => void
 }) {
   const perPortion = resolveServingNutrition(
     {
@@ -158,33 +178,43 @@ function BatchRow({
       <button
         type="button"
         onClick={onAdjust}
-        className="flex w-full gap-3 card-elevated p-3 text-left"
+        className="meal-tile flex w-full gap-0 text-left transition hover:scale-[1.01]"
       >
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
+        <div className="h-20 w-20 shrink-0 overflow-hidden bg-ink/5 sm:h-24 sm:w-24">
           {recipe?.imageDataUrl ? (
             <img
               src={assetUrl(recipe.imageDataUrl)}
               alt=""
               className="h-full w-full object-cover"
             />
-          ) : null}
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-ink-muted">
+              Dish
+            </div>
+          )}
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col justify-center px-4 py-3">
           <div className="flex flex-wrap gap-1.5">
             <Badge>{dishCategoryLabel(recipe?.category)}</Badge>
-            <Badge>Cooked {b.cookedAt}</Badge>
             <Badge tone={expired ? 'warn' : 'neutral'}>{expiryLabel}</Badge>
           </div>
-          <div className="mt-2 text-sm">
-            {b.portionsLeft} portions left
-            {b.portionsPlanned > 0 ? ` · ${b.portionsPlanned} planned` : ''}
-          </div>
+          <p className="mt-1.5 text-base font-semibold">
+            {b.portionsLeft + b.portionsPlanned} on hand
+            <span className="font-medium text-ink-muted">
+              {' '}
+              · {b.portionsPlanned} planned · {b.portionsLeft} free
+            </span>
+          </p>
           <div className="mt-1">
             <MacroInline nutrition={perPortion} />
-            <span className="text-xs text-ink-muted"> / portion</span>
           </div>
         </div>
-      </button>
+        </button>
+      {b.portionsLeft > 0 ? (
+        <Button variant="secondary" className="mt-2 w-full" onClick={onAssign}>
+          Assign free portions
+        </Button>
+      ) : null}
     </li>
   )
 }
@@ -233,12 +263,19 @@ function AdjustSheet({
         return
       }
       if (decreaseReason === 'discarded') {
+        const [recipe, pantry, restocks] = await Promise.all([
+          db.recipes.get(batch.recipeId),
+          db.pantryItems.toArray(),
+          db.restocks.toArray(),
+        ])
+        const cost = portionIngredientCost(recipe, removed, pantry, restocks)
         await db.waste.add({
           batchId: batch.id,
           recipeId: batch.recipeId,
           portions: removed,
           date: todayISO(),
           reason: 'discarded',
+          cost: cost > 0 ? cost : undefined,
           createdAt: new Date().toISOString(),
         })
       } else {

@@ -1,14 +1,11 @@
 import { isAlwaysAvailable } from '@/domain/kitchen'
+import { buyAmountForShortfall } from '@/domain/shoppingMath'
 import type { PlannerCatalog, WeekDraftSession, WeekDraftShopLine } from './types'
-
-function roundUpToPack(need: number, packSize?: number): number {
-  if (!(packSize != null && packSize > 0)) return Math.max(0, Math.round(need * 10) / 10)
-  if (need <= 0) return 0
-  return Math.ceil(need / packSize) * packSize
-}
 
 /**
  * Aggregate ingredient needs for draft cook sessions (scaled by portions / base).
+ * Buys enough for the cooks and, when lowStockThreshold is set, to land at that
+ * threshold after cooking (pack-rounded).
  */
 export function draftShoppingLines(
   sessions: WeekDraftSession[],
@@ -38,9 +35,13 @@ export function draftShoppingLines(
     const meta = catalog.ingredients.get(ingredientId)
     if (isAlwaysAvailable(meta)) continue
     const have = stock.get(ingredientId) ?? 0
-    const deficit = need - have
-    if (deficit <= 0.05) continue
-    const buy = roundUpToPack(deficit, meta?.packSize)
+    const buy = buyAmountForShortfall({
+      need,
+      have,
+      lowStockThreshold: meta?.lowStockThreshold,
+      packSize: meta?.packSize,
+    })
+    if (buy <= 0) continue
     lines.push({
       ingredientId,
       need: Math.round(need * 10) / 10,

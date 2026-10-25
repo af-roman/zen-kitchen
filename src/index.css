@@ -1,22 +1,25 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Newsreader", Georgia, serif;
-  --font-sans: "Source Sans 3", system-ui, sans-serif;
-  --color-ink: #2a2e2b;
-  --color-ink-muted: #4a524c;
-  --color-paper: #f4f1ec;
-  --color-paper-elevated: #faf8f5;
-  --color-line: #cfc6b8;
-  --color-accent: #6b7f72;
-  --color-accent-deep: #3d4a3f;
-  --color-warn: #a86b3c;
-  --color-ok: #5a7a62;
-  --color-danger: #8b4a42;
-  --color-plan-session: #3d4a3f;
-  --color-plan-meal: #c24e42;
-  --radius-card: 0.875rem;
-  --shadow-card: 0 1px 2px rgba(42, 46, 43, 0.04), 0 4px 14px rgba(42, 46, 43, 0.05);
+  /* Mise-inspired kitchen UI: airy paper, ink type, warm coral action */
+  --font-display: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --color-ink: #141414;
+  --color-ink-muted: #6b6b6b;
+  --color-paper: #f6f4f1;
+  --color-paper-elevated: #ffffff;
+  --color-line: #e6e2dc;
+  --color-accent: #c4beb6;
+  --color-accent-deep: #141414;
+  --color-lacquer: #e4572e;
+  --color-lacquer-deep: #c44522;
+  --color-warn: #c47a1a;
+  --color-ok: #2f6f4e;
+  --color-danger: #b33a3a;
+  --color-plan-session: #141414;
+  --color-plan-meal: #e4572e;
+  --radius-card: 1.25rem;
+  --shadow-card: 0 8px 28px rgba(20, 20, 20, 0.06);
 }
 
 @layer base {
@@ -26,15 +29,12 @@
 
   body {
     @apply min-h-dvh bg-paper;
-    background-image:
-      radial-gradient(ellipse 120% 80% at 10% -10%, rgba(107, 127, 114, 0.08), transparent 50%),
-      radial-gradient(ellipse 80% 60% at 100% 0%, rgba(168, 107, 60, 0.05), transparent 45%);
   }
 
   h1,
   h2,
   h3 {
-    @apply font-display font-medium tracking-tight;
+    @apply font-display font-semibold tracking-tight text-ink;
   }
 
   button,
@@ -44,7 +44,6 @@
     @apply font-sans;
   }
 
-  /* Prevent iOS Safari from zooming focused form controls (< 16px triggers zoom). */
   input,
   select,
   textarea {
@@ -53,7 +52,6 @@
     min-width: 0;
   }
 
-  /* Native date/time controls are wide on iOS — never force a min width. */
   input[type='date'],
   input[type='time'],
   input[type='datetime-local'],
@@ -65,30 +63,44 @@
 }
 
 @layer utilities {
-  /* Neutral data / list surfaces */
   .card-elevated {
     border-radius: var(--radius-card);
-    border: 1px solid var(--color-line);
+    border: 1px solid transparent;
     background-color: var(--color-paper-elevated);
     box-shadow: var(--shadow-card);
   }
 
-  /* Primary next-step / autopilot panels */
+  /* Soft callout (prefs, tips) — not the primary CTA */
   .panel-action {
     border-radius: var(--radius-card);
-    border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
-    border-left: 3px solid var(--color-accent-deep);
-    background-color: color-mix(in srgb, var(--color-accent) 8%, var(--color-paper));
+    border: 1px solid var(--color-line);
+    background-color: color-mix(in srgb, var(--color-lacquer) 8%, var(--color-paper-elevated));
+  }
+
+  /* Primary “do this next” hero */
+  .cta-ink {
+    border-radius: var(--radius-card);
+    border: none;
+    background-color: var(--color-ink);
+    color: #fff;
+    box-shadow: var(--shadow-card);
+  }
+
+  .meal-tile {
+    border-radius: var(--radius-card);
+    background-color: var(--color-paper-elevated);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
   }
 
   .page-enter {
-    animation: page-fade 280ms ease-out;
+    animation: page-fade 320ms ease-out;
   }
 
   @keyframes page-fade {
     from {
       opacity: 0;
-      transform: translateY(4px);
+      transform: translateY(6px);
     }
     to {
       opacity: 1;
@@ -99,10 +111,10 @@
   @keyframes timer-pulse {
     0%,
     100% {
-      box-shadow: 0 0 0 0 rgba(107, 127, 114, 0.35);
+      box-shadow: 0 0 0 0 rgba(228, 87, 46, 0.35);
     }
     50% {
-      box-shadow: 0 0 0 8px rgba(107, 127, 114, 0);
+      box-shadow: 0 0 0 10px rgba(228, 87, 46, 0);
     }
   }
 

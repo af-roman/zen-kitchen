@@ -682,7 +682,7 @@ function CookSessionView({
             )
           })}
         </ul>
-        <Button className="w-full" onClick={onStartCooking}>
+        <Button className="w-full py-3.5 text-base" onClick={onStartCooking}>
           Start cooking
         </Button>
       </div>
@@ -717,11 +717,8 @@ function CookSessionView({
           </Button>
         }
       />
-      <WarnBanner>
-        Session stays active while you browse — return anytime from the banner above.
-      </WarnBanner>
       {legOfChain ? (
-        <p className="mt-2 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
+        <p className="mt-2 rounded-[var(--radius-card)] border border-line bg-ink/[0.03] px-3 py-2 text-sm text-ink-muted">
           This is an early stage only — nothing lands in Ready to eat today. The rest happens on the
           cook day.
         </p>
@@ -745,10 +742,10 @@ function CookSessionView({
               key={idx}
               type="button"
               onClick={() => setActiveIdx(idx)}
-              className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${
+              className={`shrink-0 rounded-md border px-3 py-1.5 text-sm ${
                 idx === activeIdx
-                  ? 'border-accent-deep bg-accent/15 text-accent-deep'
-                  : 'border-line bg-paper-elevated'
+                  ? 'border-lacquer bg-lacquer/10 font-medium text-lacquer-deep'
+                  : 'border-line bg-paper-elevated text-ink'
               }`}
             >
               {r?.name ?? 'Dish'}
@@ -1099,10 +1096,10 @@ function CookSessionView({
             return (
               <div
                 key={`${section.name}-${section.steps[0]?.id}`}
-                className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
+                className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-3"
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <h3 className="font-display text-base text-accent-deep">{section.name}</h3>
+                  <h3 className="font-display text-base text-ink">{section.name}</h3>
                   <span className="text-xs text-ink-muted">
                     {sectionDone}/{section.steps.length}
                   </span>

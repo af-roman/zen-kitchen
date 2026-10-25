@@ -216,13 +216,13 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             onClick={() => dismiss(false)}
           />
           <div
-            className="relative z-10 w-full max-w-md rounded-t-2xl border border-line bg-paper-elevated p-5 shadow-xl sm:rounded-2xl"
+            className="relative z-10 w-full max-w-md rounded-t-[1.75rem] bg-paper-elevated p-5 shadow-card sm:rounded-[1.75rem]"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="app-dialog-title"
             aria-describedby="app-dialog-message"
           >
-            <h2 id="app-dialog-title" className="text-xl text-accent-deep">
+            <h2 id="app-dialog-title" className="text-xl font-semibold text-ink">
               {current.title}
             </h2>
             <p

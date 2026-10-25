@@ -162,6 +162,8 @@ export interface PantryItem {
   nutritionOverride?: Nutrition
   createdAt: string
   updatedAt: string
+  /** Currency per stock unit, copied from the restock that created this lot. */
+  unitCost?: number
 }
 
 export interface RecipeIngredientLine {
@@ -344,6 +346,10 @@ export interface Serving {
   items: ServingItem[]
   sessionId?: number
   createdAt: string
+  /** Today’s meal was actually eaten. Past days count unless skipped. */
+  kept?: boolean
+  /** Leave this meal out of logbook nutrition. */
+  skipped?: boolean
 }
 
 export interface RestockLine {
@@ -376,7 +382,11 @@ export interface ShoppingListItem {
   cost: number
   store: string
   notes?: string
+  /** plan = derived from cooks; manual = added by hand and left alone. */
+  source?: 'plan' | 'manual'
 }
+
+export type ShopHorizon = 'next' | 'through'
 
 export interface ShoppingList {
   id?: number
@@ -385,6 +395,10 @@ export interface ShoppingList {
   createdAt: string
   updatedAt: string
   purchasedAt?: string
+  /** Which cooks the open list is covering. */
+  horizon?: ShopHorizon
+  /** Inclusive end date when horizon is `through`. */
+  horizonDate?: string
 }
 
 export interface CookLogEntry {
@@ -409,6 +423,8 @@ export interface WasteEntry {
   portions: number
   date: string
   reason: 'discarded'
+  /** Estimated ingredient cost of the discarded portions, when prices are known. */
+  cost?: number
   createdAt: string
 }
 

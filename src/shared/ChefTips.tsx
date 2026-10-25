@@ -15,9 +15,9 @@ export function ChefTipsPanel({
 
   return (
     <details
-      className={`group rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 ${className}`}
+      className={`group rounded-[var(--radius-card)] border border-line bg-ink/[0.03] ${className}`}
     >
-      <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium text-accent-deep marker:content-none [&::-webkit-details-marker]:hidden">
+      <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium text-ink marker:content-none [&::-webkit-details-marker]:hidden">
         <span className="flex items-center justify-between gap-2">
           <span>{label}</span>
           <span className="text-xs font-normal text-ink-muted group-open:hidden">Show</span>
@@ -26,9 +26,9 @@ export function ChefTipsPanel({
           </span>
         </span>
       </summary>
-      <ul className="space-y-2 border-t border-accent/15 px-3 py-3">
+      <ul className="space-y-2 border-t border-line px-3 py-3">
         {tips.map((tip, idx) => (
-          <li key={idx} className="text-sm italic text-accent-deep">
+          <li key={idx} className="text-sm italic text-ink">
             {tips.length > 1 ? (
               <span className="mr-1.5 not-italic text-ink-muted">{idx + 1}.</span>
             ) : null}

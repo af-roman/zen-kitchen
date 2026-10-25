@@ -144,7 +144,7 @@ export function PantryPage() {
           }
         />
       ) : (
-        <ul className="space-y-3">
+        <ul className="divide-y divide-line border-y border-line">
           {filtered.map(({ item, ing }) => {
             if (!ing) return null
             const low = isLowStock(item.amountLeft, ing.lowStockThreshold)
@@ -154,9 +154,9 @@ export function PantryPage() {
                 <button
                   type="button"
                   onClick={() => startEdit(item)}
-                  className="flex w-full gap-3 card-elevated p-3 text-left transition hover:border-accent/40"
+                  className="flex w-full gap-3 px-1 py-3 text-left transition hover:bg-ink/[0.03]"
                 >
-                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-line/40">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md bg-line/40">
                     {item.imageDataUrl ? (
                       <img src={assetUrl(item.imageDataUrl)} alt="" className="h-full w-full object-cover" />
                     ) : (

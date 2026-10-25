@@ -117,6 +117,7 @@ export type PlannerCatalog = {
     {
       packSize?: number
       alwaysAvailable?: boolean
+      lowStockThreshold?: number
       rawFridgeDays?: number
       name: string
       unit: string

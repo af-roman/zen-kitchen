@@ -23,8 +23,9 @@ import {
 import { useGoals } from '@/shared/hooks'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
+import { IconCheck, IconSpark } from '@/shared/icons'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner } from '@/shared/ui'
-import { MacroBar } from '@/shared/MacroBar'
+import { MacroRings } from '@/shared/MacroBar'
 
 export function WeekPlannerPage() {
   const navigate = useNavigate()
@@ -94,24 +95,34 @@ export function WeekPlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, recipes.length, didAutogen])
 
-  async function accept() {
+  async function accept(mode: 'fill' | 'replace') {
     if (!draft) return
+    const message =
+      mode === 'fill'
+        ? `Fill empty meal slots only. Meals that already have food stay as they are. Create ${draft.sessions.length} cook session(s) and merge shopping?`
+        : `Replace meals in this date range. Planned cook sessions on those days are removed and rewritten. Active or finished cooks stay.`
     if (
-      !(await appConfirm(
-        `Create ${draft.sessions.length} cook session(s), fill empty meal slots, and merge shopping?`,
-        { confirmLabel: 'Accept week' },
-      ))
+      !(await appConfirm(message, {
+        confirmLabel: mode === 'fill' ? 'Fill empty slots' : 'Replace these days',
+        danger: mode === 'replace',
+      }))
     ) {
       return
     }
     setBusy(true)
     try {
-      const result = await acceptWeekDraft(draft, recipes, ingredients)
+      const result = await acceptWeekDraft(draft, recipes, ingredients, mode)
+      const skipped =
+        result.mealsSkipped > 0 ? ` Left alone: ${result.mealsSkipped}.` : ''
+      const blocked =
+        result.mealsBlocked > 0 ? ` Blocked by a cook already underway: ${result.mealsBlocked}.` : ''
+      const removed =
+        result.sessionsRemoved > 0 ? ` Planned sessions replaced: ${result.sessionsRemoved}.` : ''
       await appAlert(
-        `Sessions: ${result.sessionsCreated}. Meals filled: ${result.mealsWritten}. Shop lines: ${result.shopAdded + result.shopUpdated}.`,
-        { title: 'Week accepted' },
+        `Sessions: ${result.sessionsCreated}.${removed} Meals written: ${result.mealsWritten}.${skipped}${blocked} Shop lines: ${result.shopAdded + result.shopUpdated}.`,
+        { title: mode === 'fill' ? 'Empty slots filled' : 'Days replaced' },
       )
-      navigate('/')
+      navigate('/week')
     } finally {
       setBusy(false)
     }
@@ -197,26 +208,27 @@ export function WeekPlannerPage() {
     <div>
       <PageHeader
         title="Plan my week"
-        subtitle="Generate composed meals, cook sessions, and a shopping list."
+        icon={<IconSpark className="h-5 w-5" />}
+        subtitle={prefsSummary || 'Lunch & dinner · batch cooks'}
         actions={
-          <Button variant="secondary" onClick={() => navigate('/')}>
-            Back to Plan
+          <Button variant="secondary" onClick={() => navigate('/week')}>
+            Back
           </Button>
         }
       />
 
-      <section className="panel-action mb-4 p-4">
-        <p className="text-sm text-ink-muted">{prefsSummary || 'Lunch & dinner'}</p>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <section className="card-elevated mb-6 p-5">
+        <div className="flex flex-col gap-3">
           <Button
-            className="w-full sm:w-auto"
+            className="w-full gap-2"
             disabled={busy}
             onClick={() => void generate(true)}
           >
+            <IconSpark className="h-4 w-4" />
             {busy ? 'Planning…' : draft ? 'Regenerate' : 'Generate week'}
           </Button>
-          <Button variant="secondary" className="w-full sm:w-auto" onClick={() => setShowAdjust((v) => !v)}>
-            {showAdjust ? 'Hide adjust' : 'Adjust'}
+          <Button variant="ghost" className="w-full" onClick={() => setShowAdjust((v) => !v)}>
+            {showAdjust ? 'Hide options' : 'Adjust options'}
           </Button>
         </div>
 
@@ -311,13 +323,28 @@ export function WeekPlannerPage() {
           <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                className="min-w-0 flex-1 sm:flex-none sm:min-w-[10rem]"
+                className="min-w-0 flex-1 gap-2 sm:flex-none sm:min-w-[10rem]"
                 disabled={busy}
-                onClick={() => void accept()}
+                onClick={() => void accept('fill')}
               >
-                Accept week
+                <IconCheck className="h-4 w-4" />
+                Fill empty slots
               </Button>
-              <Button variant="secondary" disabled={busy} onClick={() => void generate(true)}>
+              <Button
+                variant="secondary"
+                className="gap-1.5"
+                disabled={busy}
+                onClick={() => void accept('replace')}
+              >
+                Replace these days
+              </Button>
+              <Button
+                variant="secondary"
+                className="gap-1.5"
+                disabled={busy}
+                onClick={() => void generate(true)}
+              >
+                <IconSpark className="h-4 w-4" />
                 Regenerate
               </Button>
               <Badge tone="accent">Score {draft.score.total}</Badge>
@@ -335,10 +362,11 @@ export function WeekPlannerPage() {
                 <span className="text-xs text-ink-muted">Shortlist: {shortlistSource}</span>
               ) : null}
             </div>
-            <MacroBar
+            <MacroRings
               goals={goals}
               nutrition={draft.avgNutrition}
-              goalCaption="Average planned day vs kitchen goals"
+              size="lg"
+              caption="Average planned day vs kitchen goals"
             />
             {draft.dayGoalGaps.some((g) => g.offGoal) ? (
               <ul className="mt-3 space-y-1 text-sm text-ink-muted">
@@ -405,7 +433,7 @@ export function WeekPlannerPage() {
                       return (
                         <div
                           key={meal}
-                          className="rounded-[var(--radius-card)] border border-accent/20 bg-accent/5 p-3"
+                          className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-3"
                         >
                           <div className="mb-2 flex flex-wrap items-baseline gap-2">
                             <span className="font-medium">{mealLabel}</span>
@@ -425,7 +453,7 @@ export function WeekPlannerPage() {
                                     key={key}
                                     className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${
                                       selected
-                                        ? 'border-accent bg-accent/10'
+                                        ? 'border-lacquer/40 bg-lacquer/5'
                                         : 'border-line bg-paper'
                                     }`}
                                   >
@@ -495,13 +523,27 @@ export function WeekPlannerPage() {
 
           <div className="panel-action flex flex-col gap-2 p-4 pb-8 sm:flex-row sm:flex-wrap">
             <Button
-              className="w-full sm:w-auto sm:min-w-[10rem]"
+              className="w-full gap-2 sm:w-auto sm:min-w-[10rem]"
               disabled={busy}
-              onClick={() => void accept()}
+              onClick={() => void accept('fill')}
             >
-              Accept week
+              <IconCheck className="h-4 w-4" />
+              Fill empty slots
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => void generate(true)}>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => void accept('replace')}
+            >
+              Replace these days
+            </Button>
+            <Button
+              variant="secondary"
+              className="gap-1.5"
+              disabled={busy}
+              onClick={() => void generate(true)}
+            >
+              <IconSpark className="h-4 w-4" />
               Regenerate
             </Button>
             <Button variant="ghost" onClick={() => setDraft(null)}>

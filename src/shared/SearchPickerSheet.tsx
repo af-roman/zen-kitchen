@@ -107,8 +107,8 @@ export function SearchPickerSheet<T extends string | number = number>({
                     }}
                     className={`flex w-full flex-col rounded-lg border px-3 py-2.5 text-left transition ${
                       selected
-                        ? 'border-accent bg-accent/10'
-                        : 'border-line hover:border-accent/40'
+                        ? 'border-ink/40 bg-ink/5'
+                        : 'border-line hover:border-ink/30'
                     }`}
                   >
                     <span className="text-sm font-medium">{item.label}</span>
@@ -141,7 +141,7 @@ function FilterChip({
       onClick={onClick}
       className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
         active
-          ? 'bg-accent/20 text-accent-deep'
+          ? 'bg-ink/10 text-ink'
           : 'bg-line/40 text-ink-muted hover:bg-line/70'
       }`}
     >

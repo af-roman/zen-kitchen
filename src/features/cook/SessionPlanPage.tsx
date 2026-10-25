@@ -334,14 +334,14 @@ export function SessionPlanPage() {
                     ) : null}
                   </div>
                   {prep ? (
-                    <p className="pl-0.5 text-xs text-accent-deep">Adds to pantry</p>
+                    <p className="pl-0.5 text-xs text-ink">Adds to pantry</p>
                   ) : null}
                   {isPrepLeg(dish) ? (
-                    <p className="pl-0.5 text-xs text-accent-deep">
+                    <p className="pl-0.5 text-xs text-ink">
                       {stageLabel(dishStage(dish))} stage only
                     </p>
                   ) : selected && isStagedRecipe(selected) ? (
-                    <p className="pl-0.5 text-xs text-accent-deep">
+                    <p className="pl-0.5 text-xs text-ink">
                       Starts {leadDaysAhead(selected)} day
                       {leadDaysAhead(selected) === 1 ? '' : 's'} ahead — a prep session gets planned
                       too
@@ -354,7 +354,7 @@ export function SessionPlanPage() {
         </section>
 
         {legDays.length > 0 ? (
-          <section className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-4">
+          <section className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-4">
             <h2 className="mb-2 text-lg">Prep sessions to be planned</h2>
             <p className="mb-2 text-xs text-ink-muted">
               Saving also books these earlier days. Each one cooks only its own stage.
@@ -515,7 +515,7 @@ export function SessionPlanPage() {
               : 'Prep in this session will go to the pantry when you finish cooking.'}
           </p>
           {savedOffer?.legDates.length ? (
-            <p className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
+            <p className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] px-3 py-2 text-sm text-ink-muted">
               Prep session{savedOffer.legDates.length === 1 ? '' : 's'} also planned for{' '}
               {savedOffer.legDates.join(', ')}.
             </p>

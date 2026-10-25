@@ -39,7 +39,7 @@ Cross-device sync is **full-kitchen JSON snapshots** (same shape as Backup expor
 
 ## UX priorities (when improving the app)
 
-Primary nav: **Plan · Ready · Shop · Recipes · More** (Pantry lives under More). Plan is the autopilot hub (**Plan my week** → composed meals / shop / cook). Surface Serve from Plan/Ready/day. Prefer week-fill after sessions and shopping from shortfalls before AI features. Meal patterns (一汁三菜 / bento) use recipe `mealRoles` (inferred from category when unset).
+Primary nav: **Week · Shop · Stock · Recipes · Kitchen** (Pantry under Stock/Kitchen). Week home is the autopilot hub (next action + meal tiles → Plan my week / shop / cook / serve). Prefer week-fill after sessions and shopping from shortfalls before AI features. Meal patterns (一汁三菜 / bento) use recipe `mealRoles` (inferred from category when unset).
 
 ## Commands
 

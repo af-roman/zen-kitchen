@@ -35,7 +35,7 @@ export function Sheet({
         onClick={onClose}
       />
       <div
-        className={`relative z-10 max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-line bg-paper-elevated p-5 shadow-xl sm:rounded-2xl ${
+        className={`relative z-10 max-h-[92dvh] w-full overflow-y-auto rounded-t-[1.75rem] bg-paper-elevated p-5 shadow-card sm:rounded-[1.75rem] ${
           wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'
         }`}
         role="dialog"
@@ -43,7 +43,7 @@ export function Sheet({
         aria-label={title}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className="text-xl text-accent-deep">{title}</h2>
+          <h2 className="text-xl font-semibold text-ink">{title}</h2>
           <Button variant="ghost" onClick={onClose}>
             Close
           </Button>

@@ -36,7 +36,7 @@ export function StepImageThumb({
         e.stopPropagation()
         onOpen()
       }}
-      className={`shrink-0 overflow-hidden rounded-lg border border-line bg-paper shadow-sm transition hover:border-accent/50 ${className}`}
+      className={`shrink-0 overflow-hidden rounded-lg border border-line bg-paper shadow-sm transition hover:border-ink/35 ${className}`}
       aria-label="View step photo"
     >
       <img src={assetUrl(src)} alt="" className="h-full w-full object-cover" />

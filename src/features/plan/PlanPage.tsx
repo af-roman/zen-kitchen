@@ -7,65 +7,91 @@ import {
   consolidateDuplicateMealSlots,
   healOrphanedServingItems,
 } from '@/db/servingOps'
-import type { Nutrition, Serving } from '@/domain/types'
-import { addNutrition, emptyNutrition, scaleNutrition } from '@/domain/nutrition'
+import type { MealSlot, Nutrition, Recipe, Serving } from '@/domain/types'
+import { MEAL_SLOTS } from '@/domain/types'
 import { todayISO } from '@/domain/kitchen'
+import { addNutrition, emptyNutrition } from '@/domain/nutrition'
 import {
-  daysInMonth,
   daysInMonthGrid,
   daysInWeek,
   isSameMonth,
   rangeLabel,
   shiftAnchor,
-  summarizeDay,
-  type PlanRange,
 } from '@/domain/planCalendar'
-import {
-  isPastDate,
-  mealNutritionFromItems,
-  servingItemNeedsFood,
-} from '@/domain/servings'
-import { deriveWeekJourney } from '@/domain/weekJourney'
+import { loadPlannerPrefs } from '@/domain/weekPlanner/prefs'
+import { mealNutritionFromItems, servingItemNeedsFood } from '@/domain/servings'
+import { assetUrl } from '@/shared/assetUrl'
 import { useGoals } from '@/shared/hooks'
-import { MacroBar } from '@/shared/MacroBar'
-import { Badge, Button, EmptyState, PageHeader, SegmentedControl, WarnBanner } from '@/shared/ui'
+import { IconCook, IconMeal, IconServe, IconSpark } from '@/shared/icons'
+import { MacroRings } from '@/shared/MacroBar'
+import { Badge, Button, EmptyState, SegmentedControl } from '@/shared/ui'
+
+function mealLabel(meal: MealSlot): string {
+  return MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal
+}
+
+function MealIcon({ meal }: { meal: MealSlot }) {
+  return <IconMeal meal={meal} className="h-3.5 w-3.5" />
+}
+
+function dishNames(
+  serving: Serving | undefined,
+  recipeById: Map<number, Recipe>,
+): string {
+  if (!serving || serving.items.length === 0) return 'Add dishes'
+  return serving.items
+    .map((item) => {
+      if (item.name) return item.name
+      if (item.recipeId != null) return recipeById.get(item.recipeId)?.name ?? 'Dish'
+      return 'Dish'
+    })
+    .join(' · ')
+}
+
+function coverImage(
+  serving: Serving | undefined,
+  recipeById: Map<number, Recipe>,
+): string | undefined {
+  if (!serving) return undefined
+  for (const item of serving.items) {
+    if (item.recipeId == null) continue
+    const img = recipeById.get(item.recipeId)?.imageDataUrl
+    if (img) return img
+  }
+  return undefined
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export function PlanPage() {
   const navigate = useNavigate()
   const goals = useGoals()
   const today = todayISO()
-  const [range, setRange] = useState<Exclude<PlanRange, 'day'>>('week')
-  const [anchor, setAnchor] = useState(today)
 
-  const visibleDays = useMemo(
-    () => (range === 'week' ? daysInWeek(anchor) : daysInMonthGrid(anchor)),
-    [range, anchor],
-  )
-  const nutritionDays = useMemo(
-    () => (range === 'week' ? daysInWeek(anchor) : daysInMonth(anchor)),
-    [range, anchor],
-  )
-  const rangeStart = visibleDays[0]
-  const rangeEnd = visibleDays[visibleDays.length - 1]
-
-  const sessions =
-    useLiveQuery(
-      () =>
-        db.cookingSessions
-          .where('date')
-          .between(rangeStart, rangeEnd, true, true)
-          .toArray(),
-      [rangeStart, rangeEnd],
-    ) ?? []
-  const servings =
-    useLiveQuery(
-      () => db.servings.where('date').between(rangeStart, rangeEnd, true, true).toArray(),
-      [rangeStart, rangeEnd],
-    ) ?? []
   const allSessions = useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
+  const allServings = useLiveQuery(() => db.servings.toArray(), []) ?? []
   const allBatches = useLiveQuery(() => db.readyBatches.toArray(), []) ?? []
   const recipes = useLiveQuery(() => db.recipes.toArray(), []) ?? []
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
+  const openLists =
+    useLiveQuery(() => db.shoppingLists.where('status').equals('open').toArray(), []) ?? []
+
+  const [range, setRange] = useState<'week' | 'month'>('week')
+  const [anchor, setAnchor] = useState(today)
+  const tolerancePct = loadPlannerPrefs().macroTolerancePct
+  const weekDays = useMemo(() => daysInWeek(anchor), [anchor])
+  const monthDays = useMemo(() => daysInMonthGrid(anchor), [anchor])
+  const rangeStart = weekDays[0]
+  const rangeEnd = weekDays[weekDays.length - 1]
+
+  const sessions = useMemo(
+    () => allSessions.filter((s) => s.date >= rangeStart && s.date <= rangeEnd),
+    [allSessions, rangeStart, rangeEnd],
+  )
+  const servings = useMemo(
+    () => allServings.filter((s) => s.date >= rangeStart && s.date <= rangeEnd),
+    [allServings, rangeStart, rangeEnd],
+  )
 
   const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id!, r])), [recipes])
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
@@ -78,10 +104,31 @@ export function PlanPage() {
     [allBatches],
   )
 
-  const servingNeedsFood = (serving: Serving) =>
-    serving.items.some((item) => servingItemNeedsFood(item, sessionById, batchIds))
+  function dayNutrition(date: string): Nutrition {
+    return allServings
+      .filter((s) => s.date === date && !s.skipped)
+      .reduce(
+        (acc, s) => addNutrition(acc, mealNutritionFromItems(s.items, recipeById, ingById)),
+        emptyNutrition(),
+      )
+  }
 
-  const needsFoodCount = servings.filter(servingNeedsFood).length
+  const weekAverage = useMemo(() => {
+    if (weekDays.length === 0) return emptyNutrition()
+    const total = weekDays.reduce(
+      (acc, d) => addNutrition(acc, dayNutrition(d)),
+      emptyNutrition(),
+    )
+    const daysWithFood = weekDays.filter((d) => dayNutrition(d).energyKcal > 0).length
+    const n = Math.max(1, daysWithFood || weekDays.length)
+    return {
+      energyKcal: Math.round((total.energyKcal / n) * 10) / 10,
+      carbsG: Math.round((total.carbsG / n) * 10) / 10,
+      proteinG: Math.round((total.proteinG / n) * 10) / 10,
+      fatG: Math.round((total.fatG / n) * 10) / 10,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekDays, allServings, recipeById, ingById])
 
   useEffect(() => {
     void (async () => {
@@ -90,318 +137,279 @@ export function PlanPage() {
     })()
   }, [])
 
-  function dayNutrition(date: string): Nutrition {
-    const dayServings = servings.filter((s) => s.date === date)
-    return dayServings.reduce(
-      (acc, s) => addNutrition(acc, mealNutritionFromItems(s.items, recipeById, ingById)),
-      emptyNutrition(),
-    )
+  const hasPlannedContent =
+    sessions.some((s) => s.status !== 'done') ||
+    servings.some((s) => s.items.length > 0) ||
+    allSessions.some((s) => s.status !== 'done' && s.date >= today) ||
+    allServings.some((s) => s.date >= today && s.items.length > 0) ||
+    (openLists[0]?.items.length ?? 0) > 0
+
+  const sessionsByDate = useMemo(() => {
+    const map = new Map<string, typeof sessions>()
+    for (const s of sessions) {
+      const list = map.get(s.date) ?? []
+      list.push(s)
+      map.set(s.date, list)
+    }
+    return map
+  }, [sessions])
+
+  const weekIsCurrent = rangeStart === daysInWeek(today)[0]
+
+  function dayHasCook(date: string): boolean {
+    return allSessions.some((s) => s.date === date && s.status !== 'done')
   }
 
-  const rangeAverage = useMemo(() => {
-    if (nutritionDays.length === 0) return emptyNutrition()
-    const total = nutritionDays.reduce(
-      (acc, d) => addNutrition(acc, dayNutrition(d)),
-      emptyNutrition(),
-    )
-    return scaleNutrition(total, 1 / nutritionDays.length)
-    // dayNutrition closes over servings/recipe maps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nutritionDays, servings, recipeById, ingById])
-
-  const summaries = useMemo(
-    () =>
-      visibleDays.map((date) =>
-        summarizeDay(date, sessions, servings, servingNeedsFood),
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visibleDays, sessions, servings, sessionById, batchIds],
-  )
-
-  const hasAnything = sessions.length > 0 || servings.length > 0
-
-  const openLists =
-    useLiveQuery(() => db.shoppingLists.where('status').equals('open').toArray(), []) ?? []
-  const allUpcomingSessions =
-    useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
-
-  const journey = useMemo(
-    () =>
-      deriveWeekJourney({
-        sessions: allUpcomingSessions,
-        shoppingList: openLists[0],
-        hasWeekContent: hasAnything,
-        today,
-      }),
-    [allUpcomingSessions, openLists, hasAnything, today],
-  )
-
-  function goToday() {
-    setAnchor(today)
+  function dayHasMeals(date: string): boolean {
+    return allServings.some((s) => s.date === date && s.items.length > 0 && !s.skipped)
   }
 
-  function openDay(date: string) {
-    navigate(`/plan/${date}`)
+  function dayOffGoal(date: string): boolean {
+    const kcal = dayNutrition(date).energyKcal
+    const goal = goals?.dailyKcal ?? 0
+    if (kcal <= 0 || goal <= 0) return false
+    return (Math.abs(kcal - goal) / goal) * 100 > tolerancePct
   }
 
   return (
     <div>
-      <PageHeader
-        title="Plan"
-        subtitle="Tell the kitchen what to cook — then shop, cook, and eat."
-      />
-
-      <section className="panel-action mb-4 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="font-display text-xl text-accent-deep sm:text-2xl">{journey.chip}</p>
-            <p className="mt-1 text-sm text-ink-muted">
-              Plan a week → shop → cook sessions → serve meals.
-            </p>
-          </div>
-          <Badge tone="accent">{journey.primary.kind}</Badge>
-        </div>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Button
-            className="w-full sm:w-auto sm:min-w-[10rem]"
-            onClick={() => navigate(journey.primary.to)}
-          >
-            {journey.primary.label}
-          </Button>
-          {journey.primary.kind !== 'plan' && journey.primary.kind !== 'replan' ? (
-            <Button
-              variant="secondary"
-              className="w-full sm:w-auto"
-              onClick={() => navigate('/plan-week?autogen=1')}
-            >
-              Plan my week
-            </Button>
+      <header className="mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Plan</h1>
+          {hasPlannedContent ? (
+            <div className="ml-auto flex gap-2">
+              <Button
+                variant="secondary"
+                className="gap-1.5"
+                onClick={() => navigate('/plan-week?autogen=1')}
+              >
+                <IconSpark className="h-4 w-4" />
+                Replan week
+              </Button>
+              <Button className="gap-1.5" onClick={() => navigate(`/serve?date=${today}`)}>
+                <IconServe className="h-4 w-4" />
+                Serve today
+              </Button>
+            </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="mt-3 text-sm text-ink-muted underline decoration-line underline-offset-2 transition hover:text-accent-deep"
-          onClick={() => navigate(`/serve?date=${today}`)}
-        >
-          Serve today
-        </button>
-      </section>
+        <p className="mt-1.5 text-sm font-medium text-ink-muted">{rangeLabel(anchor, range)}</p>
+      </header>
 
-      {needsFoodCount > 0 ? (
-        <div className="mb-4">
-          <WarnBanner>
-            {needsFoodCount} meal{needsFoodCount > 1 ? 's' : ''} need food after a session change.
-          </WarnBanner>
-        </div>
-      ) : null}
-
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={() => setAnchor((a) => shiftAnchor(a, range, -1))}>
+          ←
+        </Button>
+        <Button variant="secondary" onClick={() => setAnchor((a) => shiftAnchor(a, range, 1))}>
+          →
+        </Button>
+        {!weekIsCurrent || range === 'month' ? (
+          <Button variant="ghost" onClick={() => setAnchor(today)}>
+            Today
+          </Button>
+        ) : null}
         <SegmentedControl
+          className="ml-auto"
           value={range}
+          onChange={setRange}
           options={[
             { id: 'week', label: 'Week' },
             { id: 'month', label: 'Month' },
           ]}
-          onChange={(next) => setRange(next)}
-          className="max-w-xs"
         />
-        <button
-          type="button"
-          className="mt-2 text-sm text-ink-muted underline decoration-line underline-offset-2 transition hover:text-accent-deep"
-          onClick={() => navigate(`/plan/${today}`)}
-        >
-          Open today
-        </button>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Button
-          variant="secondary"
-          onClick={() => setAnchor(shiftAnchor(anchor, range, -1))}
-        >
-          ←
-        </Button>
-        <span className="min-w-0 flex-1 text-center text-sm font-medium sm:flex-none sm:text-left">
-          {rangeLabel(anchor, range)}
-        </span>
-        <Button
-          variant="secondary"
-          onClick={() => setAnchor(shiftAnchor(anchor, range, 1))}
-        >
-          →
-        </Button>
-        <Button variant="secondary" onClick={goToday}>
-          Today
-        </Button>
-      </div>
-
-      <section className="card-elevated mb-4 p-4">
-        <h2 className="mb-2 text-lg">
-          {range === 'week' ? 'This week’s nutrition' : 'This month’s nutrition'}
-        </h2>
-        <MacroBar
-          goals={goals}
-          nutrition={rangeAverage}
-          goalCaption="Average per day vs your kitchen goals"
-        />
-      </section>
-
-      {range === 'week' ? (
-        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-7">
-          {summaries.map((day) => {
-            const kcal = Math.round(dayNutrition(day.date).energyKcal)
-            const isToday = day.date === today
-            const past = isPastDate(day.date)
-            return (
-              <li key={day.date}>
-                <button
-                  type="button"
-                  onClick={() => openDay(day.date)}
-                  className={`flex w-full flex-col rounded-[var(--radius-card)] border px-3 py-3 text-left shadow-sm transition sm:min-h-[8.5rem] ${
-                    isToday
-                      ? 'border-accent bg-accent/10 ring-1 ring-accent/25'
-                      : past
-                        ? 'border-line/70 bg-paper-elevated/50'
-                        : 'border-line bg-paper-elevated hover:border-accent/45'
-                  }`}
-                >
-                  <div className="flex items-baseline justify-between gap-1">
-                    <span className="font-display text-base text-accent-deep sm:text-sm">
-                      <span className="sm:hidden">
-                        {format(parseISO(day.date), 'EEEE d MMM')}
-                      </span>
-                      <span className="hidden sm:inline">
-                        {format(parseISO(day.date), 'EEE')}
-                      </span>
-                    </span>
-                    <span className="text-xs text-ink-muted sm:block">
-                      {format(parseISO(day.date), 'd')}
-                    </span>
-                  </div>
-                  {isToday ? (
-                    <div className="mt-1">
-                      <Badge tone="accent">Today</Badge>
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {day.hasSessions ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-plan-session" title="Sessions" />
-                    ) : (
-                      <span className="h-1.5 w-1.5 rounded-full bg-line" title="No sessions" />
-                    )}
-                    {day.hasMeals ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-plan-meal" title="Meals" />
-                    ) : (
-                      <span className="h-1.5 w-1.5 rounded-full bg-line" title="No meals" />
-                    )}
-                    {day.needsFood ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-warn" title="Needs food" />
-                    ) : null}
-                  </div>
-                  <p className="mt-2 text-xs text-ink-muted">
-                    {day.sessionCount} session{day.sessionCount === 1 ? '' : 's'}
-                    {' · '}
-                    {day.mealCount}/{day.mealSlots} meals
-                  </p>
-                  {kcal > 0 ? (
-                    <p className="mt-1 text-xs font-medium text-ink">{kcal} kcal</p>
-                  ) : (
-                    <p className="mt-1 text-xs text-ink-muted">No meals yet</p>
-                  )}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      ) : (
-        <div>
-          <div className="mb-1 grid grid-cols-7 gap-1 text-center text-[10px] font-medium uppercase tracking-wide text-ink-muted">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+      {range === 'month' ? (
+        <section className="mb-6">
+          <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+            {WEEKDAYS.map((d) => (
               <div key={d}>{d}</div>
             ))}
           </div>
-          <ul className="grid grid-cols-7 gap-1">
-            {summaries.map((day) => {
-              const inMonth = isSameMonth(day.date, anchor)
-              const kcal = Math.round(dayNutrition(day.date).energyKcal)
-              const isToday = day.date === today
+          <div className="grid grid-cols-7 gap-1">
+            {monthDays.map((date) => {
+              const inMonth = isSameMonth(date, anchor)
+              const cook = dayHasCook(date)
+              const meals = dayHasMeals(date)
+              const off = dayOffGoal(date)
+              const upcomingEmpty = inMonth && date >= today && !meals && !cook
               return (
-                <li key={day.date}>
-                  <button
-                    type="button"
-                    onClick={() => openDay(day.date)}
-                    className={`flex aspect-square w-full flex-col items-center rounded-lg border px-0.5 py-1 text-center transition sm:aspect-auto sm:min-h-[4.5rem] sm:py-2 ${
-                      isToday
-                        ? 'border-accent bg-accent/10 ring-1 ring-accent/25'
-                        : inMonth
-                          ? 'border-line bg-paper-elevated hover:border-accent/40'
-                          : 'border-transparent bg-transparent text-ink-muted/50'
-                    }`}
-                  >
-                    <span
-                      className={`text-xs font-medium ${
-                        inMonth ? 'text-ink' : 'text-ink-muted/50'
-                      }`}
-                    >
-                      {format(parseISO(day.date), 'd')}
-                    </span>
-                    <div className="mt-1 flex gap-0.5">
-                      {day.hasSessions ? (
-                        <span className="h-1.5 w-1.5 rounded-full bg-plan-session" title="Sessions" />
-                      ) : null}
-                      {day.hasMeals ? (
-                        <span className="h-1.5 w-1.5 rounded-full bg-plan-meal" title="Meals" />
-                      ) : null}
-                      {day.needsFood ? (
-                        <span className="h-1.5 w-1.5 rounded-full bg-warn" title="Needs food" />
-                      ) : null}
-                    </div>
-                    {inMonth && kcal > 0 ? (
-                      <span className="mt-auto hidden text-[9px] text-ink-muted sm:block">
-                        {kcal}
-                      </span>
+                <button
+                  key={date}
+                  type="button"
+                  onClick={() => navigate(`/plan/${date}`)}
+                  className={`flex min-h-14 flex-col items-center rounded-xl px-0.5 py-1.5 text-xs ${
+                    inMonth ? 'bg-paper-elevated' : 'bg-transparent text-ink-muted/50'
+                  } ${date === today ? 'ring-1 ring-lacquer' : ''}`}
+                >
+                  <span className="font-semibold">{format(parseISO(date), 'd')}</span>
+                  <span className="mt-1 flex gap-0.5">
+                    {cook ? <span className="h-1.5 w-1.5 rounded-full bg-lacquer" /> : null}
+                    {off ? <span className="h-1.5 w-1.5 rounded-full bg-warn" /> : null}
+                    {upcomingEmpty ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-ink/20" />
                     ) : null}
-                  </button>
-                </li>
+                  </span>
+                </button>
               )
             })}
-          </ul>
-        </div>
-      )}
+          </div>
+          <p className="mt-3 text-xs text-ink-muted">
+            Lacquer dot: a cook. Amber: kcal outside ±{tolerancePct}%. Grey: empty from today on.
+            Tap a day to open it.
+          </p>
+        </section>
+      ) : null}
 
-      {!hasAnything ? (
-        <div className="mt-6">
-          <EmptyState
-            title="No week planned yet"
-            body="Generate a week of cooks, composed meals, and a shopping list from your recipes."
-            actions={
-              <>
-                <Button onClick={() => navigate('/plan-week?autogen=1')}>Plan my week</Button>
-                <Button variant="secondary" onClick={() => navigate('/recipes/new')}>
-                  Add a recipe
-                </Button>
-              </>
-            }
+      {range === 'week' && !hasPlannedContent ? (
+        <EmptyState
+          title="Your week is empty"
+          body="Generate cook days, meals, and a shopping list from your recipes — then just follow the prompts."
+          actions={
+            <Button className="min-w-[12rem] gap-2" onClick={() => navigate('/plan-week?autogen=1')}>
+              <IconSpark className="h-4 w-4" />
+              Plan my week
+            </Button>
+          }
           />
+      ) : range === 'week' ? (
+        <div className="space-y-8">
+          {weekAverage.energyKcal > 0 ? (
+            <section className="card-elevated px-4 py-4">
+              <MacroRings
+                nutrition={weekAverage}
+                goals={goals}
+                size="md"
+                caption="Average filled day vs goals"
+              />
+            </section>
+          ) : null}
+
+          {weekDays.map((date) => {
+            const isToday = date === today
+            const daySessions = sessionsByDate.get(date) ?? []
+            const cookSessions = daySessions.filter(
+              (s) => s.id != null && (s.status === 'planned' || s.status === 'active'),
+            )
+            const dayN = dayNutrition(date)
+            return (
+              <section key={date}>
+                <div className="mb-3 flex items-center gap-2">
+                  <h2 className="min-w-0 shrink font-semibold leading-tight">
+                    <span className="block text-base sm:text-lg">
+                      {isToday ? 'Today' : format(parseISO(date), 'EEE')}
+                    </span>
+                    <span className="block text-xs font-medium text-ink-muted">
+                      {format(parseISO(date), 'd MMM')}
+                    </span>
+                  </h2>
+                  {dayN.energyKcal > 0 ? (
+                    <MacroRings
+                      nutrition={dayN}
+                      goals={goals}
+                      size="xs"
+                      className="min-w-0 flex-1"
+                    />
+                  ) : (
+                    <div className="flex-1" />
+                  )}
+                </div>
+
+                <ul className="space-y-3">
+                  {cookSessions.map((session) => {
+                    const dishNamesList = session.dishes
+                      .map((d) => recipeById.get(d.recipeId)?.name ?? 'Dish')
+                      .join(' · ')
+                    const active = session.status === 'active'
+                    return (
+                      <li key={session.id}>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/cook/${session.id}`)}
+                          className="meal-tile flex w-full items-center gap-3 bg-ink px-4 py-3.5 text-left text-white transition hover:scale-[1.01] active:scale-[0.99]"
+                        >
+                          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-lacquer">
+                            <IconCook className="h-6 w-6 text-white" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-white/60">
+                              {active ? 'Cooking now' : 'Cook session'}
+                            </p>
+                            <p className="mt-0.5 line-clamp-2 text-base font-semibold leading-snug">
+                              {dishNamesList || 'Open session'}
+                            </p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-lacquer px-3 py-1.5 text-xs font-semibold">
+                            {active ? 'Resume' : 'Cook'}
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                  {MEAL_SLOTS.map(({ id: meal }) => {
+                    const serving = servings.find((s) => s.date === date && s.meal === meal)
+                    const needsFood =
+                      serving?.items.some((item) =>
+                        servingItemNeedsFood(item, sessionById, batchIds),
+                      ) ?? false
+                    const names = dishNames(serving, recipeById)
+                    const image = coverImage(serving, recipeById)
+                    const empty = !serving || serving.items.length === 0
+
+                    return (
+                      <li key={meal}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(
+                              empty || needsFood
+                                ? `/serve?date=${date}`
+                                : `/plan/${date}`,
+                            )
+                          }
+                          className="meal-tile flex w-full gap-0 text-left transition hover:scale-[1.01] active:scale-[0.99]"
+                        >
+                          <div className="h-24 w-24 shrink-0 bg-ink/5 sm:h-28 sm:w-28">
+                            {image ? (
+                              <img
+                                src={assetUrl(image)}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs font-medium text-ink-muted">
+                                {empty ? '+' : mealLabel(meal)[0]}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex min-w-0 flex-1 flex-col justify-center px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                <MealIcon meal={meal} />
+                                {mealLabel(meal)}
+                              </span>
+                              {needsFood ? <Badge tone="warn">Needs food</Badge> : null}
+                              {empty ? <Badge>Open</Badge> : null}
+                            </div>
+                            <p
+                              className={`mt-1 line-clamp-2 text-base font-semibold leading-snug ${
+                                empty ? 'text-ink-muted' : 'text-ink'
+                              }`}
+                            >
+                              {names}
+                            </p>
+                          </div>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )
+          })}
         </div>
       ) : null}
 
-      <p className="mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-ink-muted">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-plan-session" aria-hidden />
-          Cook session
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-plan-meal" aria-hidden />
-          Meal planned
-        </span>
-        {needsFoodCount > 0 ? (
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden />
-            Needs food
-          </span>
-        ) : null}
-      </p>
     </div>
   )
 }

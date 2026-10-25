@@ -7,7 +7,10 @@ import {
   consolidateDuplicateMealSlots,
   deleteCookingSession,
   healOrphanedServingItems,
+  setServingSkipped,
 } from '@/db/servingOps'
+import { AssignBatchSheet } from '@/features/plan/AssignBatchSheet'
+import { IconMeal } from '@/shared/icons'
 import { MEAL_SLOTS } from '@/domain/types'
 import { addNutrition, emptyNutrition, scaleNutrition } from '@/domain/nutrition'
 import { formatQuantity, isPrepRecipe, todayISO } from '@/domain/kitchen'
@@ -35,6 +38,7 @@ export function DayDetailPage() {
   const past = isPastDate(date)
   const isToday = date === today
   const [deleteSessionId, setDeleteSessionId] = useState<number | null>(null)
+  const [assignOpen, setAssignOpen] = useState(false)
 
   const sessions =
     useLiveQuery(() => db.cookingSessions.where('date').equals(date).toArray(), [date]) ?? []
@@ -141,8 +145,8 @@ export function DayDetailPage() {
         title={format(parseISO(date), 'EEEE d MMMM')}
         subtitle={isToday ? 'Today' : past ? 'Past day — view only' : format(parseISO(date), 'yyyy')}
         actions={
-          <Button variant="secondary" onClick={() => navigate('/')}>
-            Back
+          <Button variant="secondary" onClick={() => navigate('/week')}>
+            Week
           </Button>
         }
       />
@@ -195,6 +199,9 @@ export function DayDetailPage() {
           >
             Serve
           </Button>
+          <Button className="flex-1" variant="secondary" onClick={() => setAssignOpen(true)}>
+            Assign from stock
+          </Button>
         </div>
       ) : null}
 
@@ -212,7 +219,7 @@ export function DayDetailPage() {
               return (
                 <div
                   key={s.id}
-                  className="rounded-lg border border-accent/25 bg-accent/5 px-3 py-2"
+                  className="rounded-lg border border-line bg-ink/[0.03] px-3 py-2"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="accent">
@@ -230,7 +237,7 @@ export function DayDetailPage() {
                     })}
                   </div>
                   {legDishes.length > 0 ? (
-                    <p className="mt-1 text-xs text-accent-deep">
+                    <p className="mt-1 text-xs text-ink">
                       {legDishes
                         .map(
                           (d) =>
@@ -288,7 +295,10 @@ export function DayDetailPage() {
                   key={slot.id}
                   className="rounded-lg border border-dashed border-line px-3 py-2 text-sm text-ink-muted"
                 >
-                  {slot.label}: —
+                  <span className="inline-flex items-center gap-2">
+                    <IconMeal meal={slot.id} className="h-3.5 w-3.5" />
+                    {slot.label}: —
+                  </span>
                 </div>
               )
             }
@@ -302,8 +312,24 @@ export function DayDetailPage() {
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{slot.label}</span>
-                  {mealBroken ? <Badge tone="warn">Needs food</Badge> : null}
+                  <span className="inline-flex items-center gap-2 font-medium">
+                    <IconMeal meal={slot.id} className="h-3.5 w-3.5" />
+                    {slot.label}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2">
+                    {mealBroken ? <Badge tone="warn">Needs food</Badge> : null}
+                    {m.kept ? <Badge tone="ok">Kept</Badge> : null}
+                    {m.skipped ? <Badge>Left out</Badge> : null}
+                    {past && m.id != null ? (
+                      <Button
+                        variant="ghost"
+                        className="!py-1 !text-xs"
+                        onClick={() => void setServingSkipped(m.id!, !m.skipped)}
+                      >
+                        {m.skipped ? 'Count in stats' : 'Leave out of stats'}
+                      </Button>
+                    ) : null}
+                  </span>
                 </div>
                 {m.items.map((item, idx) => (
                   <div key={idx} className="mt-1.5 space-y-0.5">
@@ -387,10 +413,19 @@ export function DayDetailPage() {
       ) : null}
 
       <p className="mt-6 text-center text-sm text-ink-muted">
-        <Link to="/" className="underline">
+        <Link to="/week" className="underline">
           Back to plan
         </Link>
       </p>
+
+      <AssignBatchSheet
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        batches={allBatches}
+        recipes={recipes}
+        initialDate={date}
+        lockDate
+      />
 
       <Sheet
         open={deleteSessionId != null}

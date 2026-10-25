@@ -3,23 +3,32 @@ import { addShortfallsToShopping } from '@/db/shoppingOps'
 import {
   applyServingItemAllocations,
   clearServingsForMeal,
+  deleteCookingSession,
   findServingsForMeal,
 } from '@/db/servingOps'
 import { recipeNutrition } from '@/domain/recipeMath'
 import type { Ingredient, Recipe, ServingItem } from '@/domain/types'
 import type { WeekDraft } from '@/domain/weekPlanner'
 
+export type AcceptDraftMode = 'fill' | 'replace'
+
 /**
- * Accept a week draft: write cook sessions, meal servings, and shopping shortfalls.
- * Overwrites meal slots that the draft fills; leaves other slots alone.
+ * Accept a week draft.
+ * `fill` writes only empty meal slots and says how many occupied slots were left alone.
+ * `replace` clears meals in the draft and rewrites planned cooks on those days.
+ * Active or finished cooks are left in place, and meals that depend on them are skipped.
  */
 export async function acceptWeekDraft(
   draft: WeekDraft,
   recipes: Recipe[],
   ingredients: Ingredient[],
+  mode: AcceptDraftMode = 'fill',
 ): Promise<{
   sessionsCreated: number
+  sessionsRemoved: number
   mealsWritten: number
+  mealsSkipped: number
+  mealsBlocked: number
   shopAdded: number
   shopUpdated: number
 }> {
@@ -29,12 +38,29 @@ export async function acceptWeekDraft(
   )
   const now = new Date().toISOString()
 
+  const blockedDates = new Set<string>()
+  let sessionsRemoved = 0
+  if (mode === 'replace') {
+    const dates = new Set(draft.sessions.map((s) => s.date))
+    const existing = await db.cookingSessions.toArray()
+    for (const session of existing) {
+      if (session.id == null || !dates.has(session.date)) continue
+      if (session.status === 'planned') {
+        await deleteCookingSession(session.id, 'remove-meals')
+        sessionsRemoved++
+      } else {
+        blockedDates.add(session.date)
+      }
+    }
+  }
+
   // Map cookDate → sessionId
   const sessionIdByDate = new Map<string, number>()
   let sessionsCreated = 0
 
   for (const session of draft.sessions) {
     if (session.dishes.length === 0) continue
+    if (blockedDates.has(session.date)) continue
     const id = await db.cookingSessions.add({
       date: session.date,
       status: 'planned',
@@ -61,13 +87,21 @@ export async function acceptWeekDraft(
   }
 
   let mealsWritten = 0
+  let mealsSkipped = 0
+  let mealsBlocked = 0
   for (const [, group] of byMeal) {
     const { date, meal } = group[0]
-    const existing = await findServingsForMeal(date, meal)
-    if (existing.some((s) => s.items.length > 0)) {
-      // Skip occupied slots — same as week-fill
+    if (group.some((s) => blockedDates.has(s.cookDate))) {
+      mealsBlocked++
       continue
     }
+    const existing = await findServingsForMeal(date, meal)
+    const occupied = existing.some((s) => s.items.length > 0)
+    if (mode === 'fill' && occupied) {
+      mealsSkipped++
+      continue
+    }
+    if (mode === 'replace') await clearServingsForMeal(date, meal)
 
     const items: ServingItem[] = []
     for (const s of group) {
@@ -127,7 +161,10 @@ export async function acceptWeekDraft(
 
   return {
     sessionsCreated,
+    sessionsRemoved,
     mealsWritten,
+    mealsSkipped,
+    mealsBlocked,
     shopAdded: shopResult.added,
     shopUpdated: shopResult.updated,
   }

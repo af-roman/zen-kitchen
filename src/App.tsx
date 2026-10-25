@@ -5,6 +5,7 @@ import { SyncProvider } from '@/sync/SyncProvider'
 import { Bootstrap } from './app/Bootstrap'
 import { AppShell } from './app/AppShell'
 import { PlanPage } from './features/plan/PlanPage'
+import { TodayPage } from './features/plan/TodayPage'
 import { DayDetailPage } from './features/plan/DayDetailPage'
 import { ServePage } from './features/plan/ServePage'
 import { WeekPlannerPage } from './features/plan/WeekPlannerPage'
@@ -16,7 +17,6 @@ import { PantryPage } from './features/pantry/PantryPage'
 import { MorePage } from './features/more/MorePage'
 import { IngredientsPage } from './features/ingredients/IngredientsPage'
 import { ShoppingPage } from './features/shopping/ShoppingPage'
-import { CookLogPage } from './features/log/CookLogPage'
 import { GoalsPage } from './features/goals/GoalsPage'
 import { BackupPage } from './features/backup/BackupPage'
 import { NotebookPage } from './features/notebook/NotebookPage'
@@ -31,21 +31,21 @@ export default function App() {
           <BrowserRouter basename={routerBasename()}>
             <Routes>
               <Route element={<AppShell />}>
-                <Route index element={<PlanPage />} />
+                <Route index element={<TodayPage />} />
+                <Route path="week" element={<PlanPage />} />
                 <Route path="plan/:date" element={<DayDetailPage />} />
                 <Route path="serve" element={<ServePage />} />
                 <Route path="plan-week" element={<WeekPlannerPage />} />
                 <Route path="ready" element={<ReadyPage />} />
                 <Route path="recipes/new" element={<RecipeEditPage />} />
                 <Route path="recipes/:id/edit" element={<RecipeEditPage />} />
-                <Route path="recipes" element={<RecipesPage />}>
-                  <Route path=":id" element={<RecipeDetailPage />} />
-                </Route>
+                <Route path="recipes/:id" element={<RecipeDetailPage />} />
+                <Route path="recipes" element={<RecipesPage />} />
                 <Route path="pantry" element={<PantryPage />} />
                 <Route path="more" element={<MorePage />} />
                 <Route path="ingredients" element={<IngredientsPage />} />
                 <Route path="shopping" element={<ShoppingPage />} />
-                <Route path="log" element={<CookLogPage />} />
+                <Route path="log" element={<Navigate to="/notebook" replace />} />
                 <Route path="goals" element={<GoalsPage />} />
                 <Route path="backup" element={<BackupPage />} />
                 <Route path="notebook" element={<NotebookPage />} />

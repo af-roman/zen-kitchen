@@ -368,7 +368,7 @@ export function RecipeEditPage() {
           </div>
         ) : null}
         {quickMode ? (
-          <p className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
+          <p className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] px-3 py-2 text-sm text-ink-muted">
             Fridge storage defaults to 3 days. You can change that below or open full details anytime.
           </p>
         ) : null}
@@ -433,7 +433,7 @@ export function RecipeEditPage() {
           />
         </Field>
         {isPrep ? (
-          <div className="grid grid-cols-1 gap-3 rounded-lg border border-accent/25 bg-accent/5 p-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 rounded-lg border border-line bg-ink/[0.03] p-3 sm:grid-cols-2">
             <Field label="Yields ingredient">
               <SelectField<number>
                 title="Yields ingredient"
@@ -706,7 +706,7 @@ export function RecipeEditPage() {
             prep session for it.
           </p>
           {multiStage ? (
-            <p className="mb-3 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-xs text-ink-muted">
+            <p className="mb-3 rounded-[var(--radius-card)] border border-line bg-ink/[0.03] px-3 py-2 text-xs text-ink-muted">
               Spans {lead + 1} days — starts {lead} day{lead === 1 ? '' : 's'} before the cook.
             </p>
           ) : null}
@@ -720,7 +720,7 @@ export function RecipeEditPage() {
               return (
               <div
                 key={sectionKey}
-                className="space-y-3 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
+                className="space-y-3 rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-3"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
                   <div className="min-w-0 flex-1">

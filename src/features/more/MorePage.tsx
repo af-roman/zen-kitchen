@@ -1,37 +1,59 @@
 import { Link } from 'react-router-dom'
+import type { ComponentType, SVGProps } from 'react'
+import { IconBackup, IconGoals, IconIngredients, IconKitchen, IconNotebook } from '@/shared/icons'
 import { PageHeader } from '@/shared/ui'
 
-const links = [
-  { to: '/plan-week', label: 'Plan my week', hint: 'Heuristic week draft → sessions, meals, shop' },
-  { to: '/pantry', label: 'Pantry', hint: 'Stock on hand by ingredient and brand' },
-  { to: '/backup', label: 'Backup & sync', hint: 'Cloud sync, export, and restore' },
-  { to: '/goals', label: 'Kitchen goals', hint: 'Daily energy and macros' },
-  { to: '/ingredients', label: 'Ingredient library', hint: 'Food types for recipes and stock' },
-  { to: '/log', label: 'Cook log', hint: 'Past cooking sessions' },
-  { to: '/notebook', label: 'Notebook', hint: 'Nutrition at a glance' },
+type Glyph = ComponentType<SVGProps<SVGSVGElement>>
+
+const links: { to: string; label: string; hint: string; icon: Glyph }[] = [
+  { to: '/goals', label: 'Goals', hint: 'Daily energy and macros', icon: IconGoals },
+  {
+    to: '/ingredients',
+    label: 'Ingredient library',
+    hint: 'Food types for recipes',
+    icon: IconIngredients,
+  },
+  {
+    to: '/notebook',
+    label: 'Logbook',
+    hint: 'Nutrition, shopping, cooking, waste',
+    icon: IconNotebook,
+  },
+  { to: '/backup', label: 'Backup & sync', hint: 'Cloud and JSON export', icon: IconBackup },
 ]
 
 export function MorePage() {
   return (
     <div>
       <PageHeader
-        title="More"
-        subtitle="Pantry, library, goals, and care for your data."
+        title="Kitchen"
+        icon={<IconKitchen className="h-5 w-5" />}
+        subtitle="Settings and library extras."
       />
-      <ul className="space-y-2">
-        {links.map((link) => (
-          <li key={link.to}>
-            <Link
-              to={link.to}
-              className="card-elevated block px-4 py-3 transition hover:border-accent/45"
-            >
-              <div className="font-display text-lg text-accent-deep">{link.label}</div>
-              <div className="text-sm text-ink-muted">{link.hint}</div>
-            </Link>
-          </li>
-        ))}
+      <ul className="card-elevated divide-y divide-line overflow-hidden">
+        {links.map((link) => {
+          const Glyph = link.icon
+          return (
+            <li key={link.to}>
+              <Link
+                to={link.to}
+                className="flex items-center gap-3 px-4 py-4 transition hover:bg-ink/[0.02]"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lacquer/10 text-lacquer">
+                  <Glyph className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-ink">{link.label}</div>
+                  <div className="text-sm text-ink-muted">{link.hint}</div>
+                </div>
+                <span className="text-ink-muted" aria-hidden>
+                  →
+                </span>
+              </Link>
+            </li>
+          )
+        })}
       </ul>
-      <p className="mt-8 text-center font-display text-sm text-ink-muted">Zen Kitchen</p>
     </div>
   )
 }

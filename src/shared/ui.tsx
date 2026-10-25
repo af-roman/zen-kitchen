@@ -5,16 +5,28 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  icon,
 }: {
   title: string
   subtitle?: string
   actions?: ReactNode
+  /** Accent glyph shown beside the title */
+  icon?: ReactNode
 }) {
   return (
-    <header className="mb-5 flex items-start justify-between gap-3">
-      <div>
-        <h1 className="text-2xl text-accent-deep sm:text-3xl">{title}</h1>
-        {subtitle ? <p className="mt-1 text-sm text-ink-muted">{subtitle}</p> : null}
+    <header className="mb-6 flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          {icon ? (
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-lacquer/10 text-lacquer">
+              {icon}
+            </span>
+          ) : null}
+          <h1 className="text-[1.75rem] leading-tight sm:text-3xl">{title}</h1>
+        </div>
+        {subtitle ? (
+          <p className={`mt-1.5 text-sm text-ink-muted ${icon ? 'pl-14' : ''}`}>{subtitle}</p>
+        ) : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>
@@ -37,10 +49,10 @@ export function Button({
   onClick?: () => void
 }) {
   const styles = {
-    primary: 'bg-accent-deep text-paper-elevated hover:bg-ink shadow-sm',
-    secondary:
-      'bg-accent/10 border border-accent/40 text-accent-deep hover:bg-accent/15 hover:border-accent/55',
-    ghost: 'bg-transparent text-ink-muted hover:bg-line/40 hover:text-ink',
+    primary:
+      'bg-lacquer text-white hover:bg-lacquer-deep shadow-[0_6px_16px_rgba(228,87,46,0.28)]',
+    secondary: 'bg-paper-elevated text-ink shadow-card hover:bg-white',
+    ghost: 'bg-transparent text-ink-muted hover:bg-ink/5 hover:text-ink',
     danger: 'bg-danger/10 text-danger hover:bg-danger/15',
   }[variant]
   return (
@@ -48,18 +60,13 @@ export function Button({
       type={type}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium transition disabled:opacity-40 ${styles} ${className}`}
+      className={`inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-semibold transition disabled:opacity-40 ${styles} ${className}`}
     >
       {children}
     </button>
   )
 }
 
-/**
- * Consistent remove control.
- * - `icon`: trailing control on a list row (stretch with `h-full` next to inputs).
- * - text (default): labeled control at the foot of a card/section.
- */
 export function RemoveButton({
   onClick,
   label = 'Remove',
@@ -81,7 +88,7 @@ export function RemoveButton({
         title={label}
         disabled={disabled}
         onClick={onClick}
-        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-ink-muted transition hover:bg-danger/10 hover:text-danger disabled:opacity-40 ${className}`}
+        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-muted transition hover:bg-danger/10 hover:text-danger disabled:opacity-40 ${className}`}
       >
         <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden>
           <path
@@ -127,9 +134,8 @@ export function Field({
 }
 
 export const inputClass =
-  'box-border w-full min-w-0 max-w-full rounded-lg border border-line bg-paper-elevated px-3 py-2 text-base text-ink outline-none transition hover:border-accent/50 focus:border-accent focus:ring-2 focus:ring-accent/20'
+  'box-border w-full min-w-0 max-w-full rounded-2xl border border-line bg-paper-elevated px-4 py-3 text-base text-ink outline-none transition hover:border-ink/20 focus:border-ink focus:ring-2 focus:ring-ink/10'
 
-/** Textarea that grows with its content. */
 export function AutoTextarea({
   className = '',
   value,
@@ -177,13 +183,15 @@ export function Badge({
   tone?: 'neutral' | 'warn' | 'ok' | 'accent'
 }) {
   const tones = {
-    neutral: 'bg-line/50 text-ink-muted',
+    neutral: 'bg-ink/5 text-ink-muted',
     warn: 'bg-warn/15 text-warn',
-    ok: 'bg-ok/15 text-ok',
-    accent: 'bg-accent/15 text-accent-deep',
+    ok: 'bg-ok/12 text-ok',
+    accent: 'bg-lacquer/12 text-lacquer-deep',
   }[tone]
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${tones}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${tones}`}
+    >
       {children}
     </span>
   )
@@ -199,11 +207,11 @@ export function EmptyState({
   actions?: ReactNode
 }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-dashed border-line/90 bg-paper-elevated/60 px-6 py-10 text-center">
-      <p className="font-display text-lg text-accent-deep">{title}</p>
-      {body ? <p className="mt-2 text-sm text-ink-muted">{body}</p> : null}
+    <div className="card-elevated px-6 py-12 text-center">
+      <p className="text-xl font-semibold text-ink">{title}</p>
+      {body ? <p className="mx-auto mt-2 max-w-sm text-sm text-ink-muted">{body}</p> : null}
       {actions ? (
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">{actions}</div>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">{actions}</div>
       ) : null}
     </div>
   )
@@ -211,13 +219,10 @@ export function EmptyState({
 
 export function WarnBanner({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-sm text-warn">
-      {children}
-    </div>
+    <div className="rounded-2xl bg-warn/10 px-4 py-3 text-sm text-warn">{children}</div>
   )
 }
 
-/** Segmented filter control (e.g. All / Dishes / Prep). */
 export function SegmentedControl<T extends string>({
   value,
   options,
@@ -231,7 +236,7 @@ export function SegmentedControl<T extends string>({
 }) {
   return (
     <div
-      className={`flex rounded-lg border border-line bg-paper p-0.5 shadow-sm ${className}`}
+      className={`flex rounded-full bg-ink/5 p-1 ${className}`}
       role="group"
     >
       {options.map((opt) => {
@@ -241,10 +246,10 @@ export function SegmentedControl<T extends string>({
             key={opt.id}
             type="button"
             onClick={() => onChange(opt.id)}
-            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition ${
+            className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${
               active
-                ? 'bg-accent-deep text-paper-elevated shadow-sm'
-                : 'text-ink-muted hover:bg-accent/5 hover:text-ink'
+                ? 'bg-paper-elevated text-ink shadow-sm'
+                : 'text-ink-muted hover:text-ink'
             }`}
           >
             {opt.label}

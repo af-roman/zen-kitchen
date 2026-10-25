@@ -75,8 +75,8 @@ export function SelectField<T extends string | number = string>({
                   }}
                   className={`flex w-full flex-col rounded-lg border px-3 py-2.5 text-left transition disabled:opacity-40 ${
                     active
-                      ? 'border-accent bg-accent/10 text-accent-deep'
-                      : 'border-line bg-paper hover:border-accent/40'
+                      ? 'border-ink/40 bg-ink/5 text-ink'
+                      : 'border-line bg-paper hover:border-ink/30'
                   }`}
                 >
                   <span className="text-sm font-medium">{opt.label}</span>
@@ -121,8 +121,8 @@ export function Checkbox({
       <span
         className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${
           checked
-            ? 'border-accent-deep bg-accent-deep text-paper-elevated'
-            : 'border-line bg-paper-elevated group-hover:border-accent'
+            ? 'border-ink bg-ink text-paper-elevated'
+            : 'border-line bg-paper-elevated group-hover:border-ink/40'
         }`}
         aria-hidden
       >
@@ -192,7 +192,7 @@ export function NumberField({
         aria-label="Decrease"
         disabled={disabled || (min != null && value <= min)}
         onClick={() => bump(-step)}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-accent disabled:opacity-40"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40"
       >
         −
       </button>
@@ -218,7 +218,7 @@ export function NumberField({
         aria-label="Increase"
         disabled={disabled || (max != null && value >= max)}
         onClick={() => bump(step)}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-accent disabled:opacity-40"
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40"
       >
         +
       </button>
@@ -298,7 +298,7 @@ export function DateField({
           >
             ←
           </Button>
-          <span className="font-display text-lg text-accent-deep">
+          <span className="font-display text-lg text-ink">
             {format(month, 'MMMM yyyy')}
           </span>
           <Button
@@ -371,9 +371,9 @@ export function DateField({
                     }}
                     className={`rounded-lg py-2 text-sm transition disabled:opacity-30 ${
                       isSelected
-                        ? 'bg-accent-deep text-paper-elevated'
+                        ? 'bg-ink text-paper-elevated'
                         : inMonth
-                          ? 'text-ink hover:bg-accent/15'
+                          ? 'text-ink hover:bg-ink/10'
                           : 'text-ink-muted/50 hover:bg-line/40'
                     }`}
                   >

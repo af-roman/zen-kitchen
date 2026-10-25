@@ -18,7 +18,7 @@ export function YoutubeWatchButton({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-paper-elevated px-3.5 py-2.5 text-sm font-medium text-accent-deep transition hover:border-accent/40 ${className}`}
+      className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-paper-elevated px-3.5 py-2.5 text-sm font-medium text-ink transition hover:border-ink/30 ${className}`}
     >
       <YoutubeIcon className="h-4 w-4 shrink-0 text-[#c4302b]" />
       Watch on YouTube

@@ -45,9 +45,24 @@ import { MacroBar, MacroInline } from '@/shared/MacroBar'
 import { Sheet } from '@/shared/Sheet'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { DateField, NumberField, SelectField } from '@/shared/forms'
+import { assetUrl } from '@/shared/assetUrl'
 import { Badge, Button, Field, PageHeader, RemoveButton, WarnBanner, inputClass } from '@/shared/ui'
 
 type AdhocUsageLine = NonNullable<ServingItem['usage']>[number]
+
+function RecipeThumb({ src }: { src?: string }) {
+  return (
+    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-ink/5">
+      {src ? (
+        <img src={assetUrl(src)} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full items-center justify-center text-[10px] font-medium text-ink-muted">
+          Dish
+        </div>
+      )}
+    </div>
+  )
+}
 
 function initialServeDate(params: URLSearchParams, today: string): string {
   const fromUrl = params.get('date')
@@ -324,7 +339,7 @@ export function ServePage() {
 
     await applyServingItemAllocations(items)
 
-    navigate('/')
+    navigate(date === today ? '/' : '/week')
   }
 
   return (
@@ -344,12 +359,12 @@ export function ServePage() {
           </WarnBanner>
         ) : null}
 
-        <div className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm">
+        <div className="rounded-md border border-lacquer/25 bg-lacquer/5 px-3 py-2 text-sm">
           Assigning{' '}
-          <span className="font-medium text-accent-deep">
+          <span className="font-medium text-lacquer-deep">
             {MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal}
           </span>{' '}
-          on <span className="font-medium text-accent-deep">{date}</span>
+          on <span className="font-medium text-ink">{date}</span>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -373,7 +388,7 @@ export function ServePage() {
           </Field>
         </div>
 
-        <section className="card-elevated p-4">
+        <section className="border-b border-line pb-4">
           <h2 className="mb-1 text-lg">This day</h2>
           <p className="mb-3 text-xs text-ink-muted">
             What’s already planned, and which meals still need dishes.
@@ -396,10 +411,10 @@ export function ServePage() {
                     <button
                       type="button"
                       onClick={() => setMeal(slot.id)}
-                      className={`flex w-full flex-col rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      className={`flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition ${
                         selected
-                          ? 'border-accent bg-accent/10'
-                          : 'border-dashed border-line hover:border-accent/40'
+                          ? 'border-lacquer/40 bg-lacquer/5'
+                          : 'border-dashed border-line hover:border-ink/30'
                       }`}
                     >
                       <div className="flex w-full items-center justify-between gap-2">
@@ -451,10 +466,10 @@ export function ServePage() {
                     onClick={() => setMeal(slot.id)}
                     className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
                       selected
-                        ? 'border-accent bg-accent/10'
+                        ? 'border-lacquer/40 bg-lacquer/5'
                         : broken
                           ? 'border-warn bg-warn/10 hover:border-warn'
-                          : 'border-line hover:border-accent/40'
+                          : 'border-line hover:border-ink/30'
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -502,7 +517,7 @@ export function ServePage() {
           ) : (
             <p className="mt-3 text-xs text-ink-muted">All meal slots have dishes for this day.</p>
           )}
-          <div className="mt-3 rounded-lg border border-accent/25 bg-accent/5 px-3 py-2">
+          <div className="mt-3 rounded-lg border border-line bg-ink/[0.03] px-3 py-2">
             <span className="text-xs font-medium text-ink">Day total · </span>
             <MacroInline nutrition={dayNutritionPreview} goals={goals} />
           </div>
@@ -524,6 +539,9 @@ export function ServePage() {
                 )
                 return (
                   <li key={b.id} className="rounded-lg border border-line p-3">
+                    <div className="flex gap-3">
+                    <RecipeThumb src={recipeById.get(b.recipeId)?.imageDataUrl} />
+                    <div className="min-w-0 flex-1">
                     <div className="font-medium">{recipeById.get(b.recipeId)?.name}</div>
                     <div className="text-xs text-ink-muted">
                       Cooked {b.cookedAt} · until {b.expiresAt} · {b.portionsLeft} left
@@ -557,6 +575,8 @@ export function ServePage() {
                         }
                       />
                     </Field>
+                    </div>
+                    </div>
                   </li>
                 )
               })}
@@ -583,7 +603,10 @@ export function ServePage() {
                 const recipe = recipeById.get(p.recipeId)
                 const perPortion = recipe ? recipeNutrition(recipe, ingById) : emptyNutrition()
                 return (
-                  <li key={`${p.sessionId}-${p.recipeId}`} className="rounded-lg border border-accent/25 bg-accent/5 p-3">
+                  <li key={`${p.sessionId}-${p.recipeId}`} className="rounded-lg border border-line bg-ink/[0.03] p-3">
+                    <div className="flex gap-3">
+                    <RecipeThumb src={recipe?.imageDataUrl} />
+                    <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{recipe?.name}</span>
                       <Badge tone="accent">Session {p.sessionDate}</Badge>
@@ -621,6 +644,8 @@ export function ServePage() {
                         }
                       />
                     </Field>
+                    </div>
+                    </div>
                   </li>
                 )
               })}
@@ -783,7 +808,7 @@ export function ServePage() {
                       <span className="text-ink-muted">
                         {slot.label}
                         {isEditing ? (
-                          <span className="ml-1 text-accent-deep">· editing</span>
+                          <span className="ml-1 text-ink">· editing</span>
                         ) : null}
                       </span>
                       {empty ? (
@@ -984,7 +1009,7 @@ function AdhocFoodSheet({
           <div className="mb-2 flex items-center justify-between gap-2">
             <button
               type="button"
-              className="text-sm font-medium text-accent-deep"
+              className="text-sm font-medium text-ink"
               onClick={() => setShowPantry((v) => !v)}
             >
               From pantry {showPantry ? '▾' : '▸'}

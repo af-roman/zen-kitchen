@@ -37,8 +37,7 @@ import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
 import { loadRecipeTaste, setRecipeTaste, type RecipeTaste } from '@/domain/weekPlanner'
 import { recipeMealRoles } from '@/domain/mealRoles'
 import { appConfirm } from '@/shared/dialog'
-import { Badge, Button, WarnBanner } from '@/shared/ui'
-import { Sheet } from '@/shared/Sheet'
+import { Badge, Button, PageHeader, WarnBanner } from '@/shared/ui'
 
 export function RecipeDetailPage() {
   const { id } = useParams()
@@ -73,9 +72,17 @@ export function RecipeDetailPage() {
 
   if (!recipe) {
     return (
-      <Sheet open title="Recipe" onClose={close} wide>
+      <div>
+        <PageHeader
+          title="Recipe"
+          actions={
+            <Button variant="secondary" onClick={close}>
+              Back
+            </Button>
+          }
+        />
         <p className="text-ink-muted">Recipe not found.</p>
-      </Sheet>
+      </div>
     )
   }
 
@@ -142,39 +149,47 @@ export function RecipeDetailPage() {
 
   return (
     <>
-    <Sheet open title={r.name} onClose={close} wide>
-      {r.description ? (
-        <p className="mb-3 text-sm text-ink-muted">{r.description}</p>
+    <div>
+      <PageHeader
+        title={r.name}
+        subtitle={r.description || undefined}
+        actions={
+          <Button variant="secondary" onClick={close}>
+            Back
+          </Button>
+        }
+      />
+
+      {r.imageDataUrl ? (
+        <img
+          src={assetUrl(r.imageDataUrl)}
+          alt=""
+          className="mb-5 h-52 w-full rounded-[var(--radius-card)] object-cover shadow-card sm:h-64"
+        />
       ) : null}
 
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-        <Button className="flex-1" onClick={() => void startCookNow()}>
+      <div className="mb-5 flex flex-col gap-2">
+        <Button className="w-full" onClick={() => void startCookNow()}>
           Cook now
         </Button>
-        <Button className="flex-1" variant="secondary" onClick={() => void addToSession()}>
-          Add to session
-        </Button>
-        <Button
-          className="flex-1"
-          variant="secondary"
-          onClick={() => navigate(`/recipes/${recipeId}/edit`)}
-        >
-          Edit
-        </Button>
+        <div className="flex gap-2">
+          <Button className="flex-1" variant="secondary" onClick={() => void addToSession()}>
+            Add to session
+          </Button>
+          <Button
+            className="flex-1"
+            variant="secondary"
+            onClick={() => navigate(`/recipes/${recipeId}/edit`)}
+          >
+            Edit
+          </Button>
+        </div>
       </div>
 
       {!avail.cookable ? (
         <div className="mb-4">
           <WarnBanner>Some ingredients are missing from the pantry for a full cook.</WarnBanner>
         </div>
-      ) : null}
-
-      {r.imageDataUrl ? (
-        <img
-          src={assetUrl(r.imageDataUrl)}
-          alt=""
-          className="mb-4 h-48 w-full rounded-[var(--radius-card)] object-cover"
-        />
       ) : null}
 
       <div className="mb-4 space-y-2">
@@ -230,7 +245,7 @@ export function RecipeDetailPage() {
               href={r.source.trim()}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent-deep underline"
+              className="text-ink underline"
             >
               {r.source.trim()}
             </a>
@@ -243,7 +258,7 @@ export function RecipeDetailPage() {
       {youtubeHref ? <YoutubeWatchButton href={youtubeHref} className="mb-4" /> : null}
 
       {prep && r.yieldAmount != null && yieldIng ? (
-        <section className="mb-5 card-elevated p-4">
+        <section className="mb-5 border-b border-line pb-5">
           <h2 className="mb-2 text-lg">Pantry yield</h2>
           <p className="text-sm text-ink-muted">
             One cook of {r.portions} {r.portions === 1 ? 'batch' : 'batches'} adds{' '}
@@ -254,7 +269,7 @@ export function RecipeDetailPage() {
           </p>
         </section>
       ) : (
-        <section className="mb-5 card-elevated p-4">
+        <section className="mb-5 border-b border-line pb-5">
           <h2 className="mb-3 text-lg">Nutrition per portion</h2>
           <MacroBar
             nutrition={nutrition}
@@ -328,7 +343,7 @@ export function RecipeDetailPage() {
             <div key={stage.daysAhead}>
               {staged ? (
                 <div className="mb-2 flex items-center gap-2">
-                  <h3 className="font-display text-base">{stageLabel(stage.daysAhead)}</h3>
+                  <h3 className="text-base font-semibold">{stageLabel(stage.daysAhead)}</h3>
                   <span className="text-xs text-ink-muted">
                     {stage.steps.length} step{stage.steps.length === 1 ? '' : 's'}
                   </span>
@@ -338,9 +353,9 @@ export function RecipeDetailPage() {
                 {groupRecipeSteps(stage.steps).map((section) => (
                   <div
                     key={`${section.name}-${section.steps[0]?.id}`}
-                    className="rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 p-3"
+                    className="rounded-md border border-line bg-paper-elevated/60 p-3"
                   >
-                    <h4 className="mb-2 font-display text-base text-accent-deep">
+                    <h4 className="mb-2 text-base font-semibold text-ink">
                       {section.name}
                     </h4>
                     <ol className="space-y-3">
@@ -361,7 +376,7 @@ export function RecipeDetailPage() {
                               <span className="text-ink-muted">{idx + 1}.</span>{' '}
                               {step.description}
                               {step.requiresTimer && step.timerDuration && step.timerUnit ? (
-                                <div className="mt-1 text-xs text-accent-deep">
+                                <div className="mt-1 text-xs font-medium text-lacquer">
                                   Timer{' '}
                                   {formatDuration(
                                     timerToSeconds(step.timerDuration, step.timerUnit),
@@ -382,7 +397,7 @@ export function RecipeDetailPage() {
       </section>
 
       {!prep && (r.repurposesFromRecipeIds?.length || allRecipes.some((o) => o.repurposesFromRecipeIds?.includes(recipeId))) ? (
-        <section className="mb-5 card-elevated p-4">
+        <section className="mb-5 border-b border-line pb-5">
           <h2 className="mb-2 text-lg">Leftover transforms</h2>
           {r.repurposesFromRecipeIds?.length ? (
             <p className="mb-2 text-sm text-ink-muted">
@@ -418,7 +433,7 @@ export function RecipeDetailPage() {
       <Button variant="ghost" className="mt-6 w-full text-danger" onClick={() => void remove()}>
         Delete recipe
       </Button>
-    </Sheet>
+    </div>
     <StepImageGallery
       open={galleryStartId != null}
       startId={galleryStartId}

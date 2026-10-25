@@ -16,9 +16,9 @@ export function Bootstrap({ children }: { children: ReactNode }) {
 
   if (error) {
     return (
-      <div className="flex min-h-dvh items-center justify-center p-6 text-center">
+      <div className="flex min-h-dvh items-center justify-center bg-paper p-6 text-center">
         <div>
-          <h1 className="font-display text-2xl text-danger">Could not open kitchen</h1>
+          <h1 className="text-2xl font-semibold text-danger">Could not open kitchen</h1>
           <p className="mt-2 text-sm text-ink-muted">{error}</p>
         </div>
       </div>
@@ -27,8 +27,8 @@ export function Bootstrap({ children }: { children: ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="flex min-h-dvh items-center justify-center p-6">
-        <p className="font-display text-xl text-accent-deep">Opening Zen Kitchen…</p>
+      <div className="flex min-h-dvh items-center justify-center bg-paper p-6">
+        <p className="text-xl font-semibold text-ink">Opening kitchen…</p>
       </div>
     )
   }

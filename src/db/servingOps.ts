@@ -1,6 +1,6 @@
 import { db } from './database'
 import { removeSiblingLegsOf } from './sessionChains'
-import type { Recipe, Serving, ServingItem, SessionDishPlan } from '@/domain/types'
+import type { MealSlot, Recipe, Serving, ServingItem, SessionDishPlan } from '@/domain/types'
 import { isPrepRecipe } from '@/domain/kitchen'
 import { maxStorageDays } from '@/domain/storage'
 import {
@@ -220,6 +220,58 @@ export async function validateServePicks(
   }
 
   return shortfalls
+}
+
+export async function setServingKept(id: number, kept: boolean): Promise<void> {
+  await db.servings.update(id, { kept, skipped: kept ? false : undefined })
+}
+
+export async function setServingSkipped(id: number, skipped: boolean): Promise<void> {
+  await db.servings.update(id, { skipped, kept: skipped ? false : undefined })
+}
+
+/**
+ * Put free portions of a ready batch onto a meal.
+ * Returns an error string when the batch cannot cover that day.
+ */
+export async function assignBatchToMeal(input: {
+  batchId: number
+  date: string
+  meal: MealSlot
+  portions: number
+}): Promise<string | null> {
+  const batch = await db.readyBatches.get(input.batchId)
+  if (!batch) return 'That batch is no longer in stock.'
+  if (input.portions <= 0) return 'Portions must be greater than zero.'
+  const recipe = await db.recipes.get(batch.recipeId)
+  const name = recipe?.name ?? 'Dish'
+  const problems = await validateServePicks(
+    [{ kind: 'batch', batchId: input.batchId, portions: input.portions }],
+    input.date,
+    () => name,
+  )
+  if (problems.length > 0) return problems[0] ?? 'Cannot assign this batch.'
+
+  const item: ServingItem = {
+    batchId: batch.id,
+    recipeId: batch.recipeId,
+    portions: input.portions,
+    nutrition: batch.nutritionPerPortion,
+  }
+  const existing = await findServingsForMeal(input.date, input.meal)
+  const serving = existing[existing.length - 1]
+  if (serving?.id != null) {
+    await db.servings.update(serving.id, { items: [...serving.items, item] })
+  } else {
+    await db.servings.add({
+      date: input.date,
+      meal: input.meal,
+      items: [item],
+      createdAt: new Date().toISOString(),
+    })
+  }
+  await applyServingItemAllocations([item])
+  return null
 }
 
 export async function findServingsForMeal(date: string, meal: Serving['meal']) {

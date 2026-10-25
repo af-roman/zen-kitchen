@@ -2,24 +2,24 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { format, parseISO } from 'date-fns'
 import { db } from '@/db/database'
-import { Badge, Button, EmptyState, Field, PageHeader, AutoTextarea } from '@/shared/ui'
+import { Badge, Button, Field, AutoTextarea } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
 
-export function CookLogPage() {
-  const logs = useLiveQuery(() => db.cookLog.orderBy('date').reverse().toArray(), []) ?? []
+/** Past cooking sessions, filtered to the logbook window when dates are passed. */
+export function CookLogList({ from, to }: { from?: string; to?: string }) {
+  const logs =
+    (useLiveQuery(() => db.cookLog.orderBy('date').reverse().toArray(), []) ?? []).filter(
+      (log) => (from == null || log.date >= from) && (to == null || log.date <= to),
+    )
   const [openId, setOpenId] = useState<number | null>(null)
   const entry = logs.find((l) => l.id === openId)
   const [notes, setNotes] = useState('')
 
   return (
     <div>
-      <PageHeader
-        title="Cook log"
-        subtitle="Past cooking sessions — locked except for your notes."
-      />
       {logs.length === 0 ? (
-        <EmptyState title="No sessions logged yet" body="Finished cooks appear here." />
+        <p className="text-sm text-ink-muted">No finished cooks in this window.</p>
       ) : (
         <ul className="space-y-2">
           {logs.map((log) => (

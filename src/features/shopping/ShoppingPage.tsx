@@ -1,23 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import {
-  endOfMonth,
-  endOfWeek,
-  format,
-  parseISO,
-  startOfMonth,
-  startOfWeek,
-} from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/database'
-import type { Restock, RestockLine, ShoppingListItem } from '@/domain/types'
-import { isAlwaysAvailable, isLowStock, todayISO, uid } from '@/domain/kitchen'
+import { syncPlanShopping } from '@/db/shoppingOps'
+import {
+  INGREDIENT_CATEGORIES,
+  type IngredientCategory,
+  type Restock,
+  type RestockLine,
+  type ShopHorizon,
+  type ShoppingListItem,
+} from '@/domain/types'
+import { todayISO, uid } from '@/domain/kitchen'
 import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
-import { stockTotals } from '@/domain/recipeMath'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
-import { Badge, Button, EmptyState, Field, PageHeader, RemoveButton, WarnBanner, inputClass, AutoTextarea } from '@/shared/ui'
+import { IconCheck, IconPlus, IconShop } from '@/shared/icons'
+import { Badge, Button, EmptyState, Field, PageHeader, RemoveButton, SegmentedControl, WarnBanner, inputClass, AutoTextarea } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
 type RestockPrefill = {
@@ -29,44 +29,17 @@ type RestockPrefill = {
 }
 
 export function ShoppingPage() {
-  const navigate = useNavigate()
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
-  const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
   const restocks = useLiveQuery(() => db.restocks.orderBy('date').reverse().toArray(), []) ?? []
-  const openLists =
-    useLiveQuery(() => db.shoppingLists.where('status').equals('open').toArray(), []) ?? []
+  const sessionsQ = useLiveQuery(() => db.cookingSessions.toArray())
+  const pantryQ = useLiveQuery(() => db.pantryItems.toArray())
+  const recipesQ = useLiveQuery(() => db.recipes.toArray())
+  const openListsQ = useLiveQuery(() => db.shoppingLists.where('status').equals('open').toArray())
+  const openLists = openListsQ ?? []
   const shoppingList = openLists[0] ?? null
   const listCount = shoppingList?.items.length ?? 0
 
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
-  const stock = useMemo(() => stockTotals(pantry), [pantry])
-
-  const lowItems = useMemo(() => {
-    return ingredients.filter((ing) => {
-      if (isAlwaysAvailable(ing)) return false
-      const have = stock.get(ing.id!) ?? 0
-      return have === 0 || isLowStock(have, ing.lowStockThreshold)
-    })
-  }, [ingredients, stock])
-
-  const now = new Date()
-  const weekStart = startOfWeek(now, { weekStartsOn: 1 })
-  const weekEnd = endOfWeek(now, { weekStartsOn: 1 })
-  const monthStart = startOfMonth(now)
-  const monthEnd = endOfMonth(now)
-
-  const spendWeek = restocks
-    .filter((r) => {
-      const d = parseISO(r.date)
-      return d >= weekStart && d <= weekEnd
-    })
-    .reduce((s, r) => s + r.totalCost, 0)
-  const spendMonth = restocks
-    .filter((r) => {
-      const d = parseISO(r.date)
-      return d >= monthStart && d <= monthEnd
-    })
-    .reduce((s, r) => s + r.totalCost, 0)
 
   const [restockOpen, setRestockOpen] = useState(false)
   const [editing, setEditing] = useState<Restock | null>(null)
@@ -74,6 +47,13 @@ export function ShoppingPage() {
   const [listSheetOpen, setListSheetOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [horizon, setHorizon] = useState<ShopHorizon>('next')
+  const [throughDate, setThroughDate] = useState(() =>
+    format(addDays(parseISO(todayISO()), 6), 'yyyy-MM-dd'),
+  )
+  const [hydrated, setHydrated] = useState(false)
+  const [storeFilter, setStoreFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState<IngredientCategory | 'all'>('all')
 
   const listItems = shoppingList?.items ?? []
   const listItemIds = useMemo(() => new Set(listItems.map((i) => i.id)), [listItems])
@@ -86,20 +66,96 @@ export function ShoppingPage() {
     })
   }, [listItemIds])
 
+  useEffect(() => {
+    if (hydrated || openListsQ === undefined) return
+    if (shoppingList?.horizon) setHorizon(shoppingList.horizon)
+    if (shoppingList?.horizonDate) setThroughDate(shoppingList.horizonDate)
+    setHydrated(true)
+  }, [openListsQ, shoppingList, hydrated])
+
+  const planKey = useMemo(() => {
+    if (
+      !hydrated ||
+      sessionsQ === undefined ||
+      pantryQ === undefined ||
+      recipesQ === undefined
+    ) {
+      return ''
+    }
+    const sessionBits = sessionsQ
+      .map(
+        (s) =>
+          `${s.id}:${s.date}:${s.status}:${s.dishes
+            .map((d) => `${d.recipeId}:${d.portions}:${d.completed ? 1 : 0}`)
+            .join(',')}`,
+      )
+      .join('|')
+    const stockBits = pantryQ.map((p) => `${p.id}:${p.amountLeft}`).join('|')
+    return `${horizon}|${throughDate}|${sessionBits}|${stockBits}|${ingredients.length}|${restocks.length}`
+  }, [
+    sessionsQ,
+    pantryQ,
+    recipesQ,
+    hydrated,
+    horizon,
+    throughDate,
+    ingredients.length,
+    restocks.length,
+  ])
+
+  useEffect(() => {
+    if (!planKey || restockOpen || listSheetOpen) return
+    if (sessionsQ === undefined || pantryQ === undefined || recipesQ === undefined) return
+    void syncPlanShopping({
+      horizon,
+      throughDate,
+      today: todayISO(),
+      sessions: sessionsQ,
+      recipes: recipesQ,
+      ingredients,
+      pantry: pantryQ,
+      restocks,
+    })
+  }, [planKey, restockOpen, listSheetOpen, horizon, throughDate, sessionsQ, pantryQ, recipesQ, ingredients, restocks])
+
   const selectedItems = useMemo(
     () => listItems.filter((i) => selectedIds.has(i.id)),
     [listItems, selectedIds],
   )
   const allSelected = listItems.length > 0 && selectedItems.length === listItems.length
 
-  const listTotal = listItems.reduce((s, i) => s + (Number(i.cost) || 0), 0)
-  const selectedTotal = selectedItems.reduce((s, i) => s + (Number(i.cost) || 0), 0)
+  function storeName(store: string): string {
+    return store.trim() || 'No store'
+  }
+
   const stores = useMemo(() => {
-    const set = new Set(
-      listItems.map((i) => i.store.trim()).filter((s) => s.length > 0),
-    )
+    const set = new Set(listItems.map((item) => storeName(item.store)))
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [listItems])
+
+  const visibleItems = useMemo(
+    () =>
+      listItems.filter((item) => {
+        const ing = ingById.get(item.ingredientId)
+        if (storeFilter !== 'all' && storeName(item.store) !== storeFilter) return false
+        if (categoryFilter !== 'all' && ing?.category !== categoryFilter) return false
+        return true
+      }),
+    [listItems, ingById, storeFilter, categoryFilter],
+  )
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, ShoppingListItem[]>()
+    for (const item of visibleItems) {
+      const key = storeName(item.store)
+      const list = map.get(key) ?? []
+      list.push(item)
+      map.set(key, list)
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [visibleItems])
+
+  const visibleTotal = visibleItems.reduce((s, i) => s + (Number(i.cost) || 0), 0)
   const selectedStores = useMemo(() => {
     const set = new Set(
       selectedItems.map((i) => i.store.trim()).filter((s) => s.length > 0),
@@ -149,6 +205,7 @@ export function ShoppingPage() {
   async function saveListItem(item: Omit<ShoppingListItem, 'id'> & { id?: string }) {
     const listId = await ensureOpenList()
     const list = (await db.shoppingLists.get(listId))!
+    const previous = item.id ? list.items.find((i) => i.id === item.id) : undefined
     const nextItem: ShoppingListItem = {
       id: item.id ?? uid(),
       ingredientId: item.ingredientId,
@@ -157,6 +214,7 @@ export function ShoppingPage() {
       cost: item.cost,
       store: item.store.trim(),
       notes: item.notes?.trim() || undefined,
+      source: previous?.source ?? 'manual',
     }
     const items = item.id
       ? list.items.map((i) => (i.id === item.id ? nextItem : i))
@@ -175,16 +233,6 @@ export function ShoppingPage() {
       items: shoppingList.items.filter((i) => i.id !== itemId),
       updatedAt: new Date().toISOString(),
     })
-  }
-
-  async function clearList() {
-    if (!shoppingList?.id || listItems.length === 0) return
-    if (!(await appConfirm('Clear the shopping list?', { danger: true, confirmLabel: 'Clear' }))) return
-    await db.shoppingLists.update(shoppingList.id, {
-      items: [],
-      updatedAt: new Date().toISOString(),
-    })
-    setSelectedIds(new Set())
   }
 
   function toggleSelected(itemId: string) {
@@ -250,234 +298,161 @@ export function ShoppingPage() {
     setSelectedIds(new Set())
   }
 
-  async function addLowToList(ingredientId: number) {
-    const listId = await ensureOpenList()
-    const list = (await db.shoppingLists.get(listId))!
-    if (list.items.some((i) => i.ingredientId === ingredientId)) {
-      await appAlert('Already on the shopping list.')
-      return
-    }
-    const next: ShoppingListItem = {
-      id: uid(),
-      ingredientId,
-      amount: 0,
-      brand: '',
-      cost: 0,
-      store: '',
-    }
-    await db.shoppingLists.update(listId, {
-      items: [...list.items, next],
-      updatedAt: new Date().toISOString(),
-    })
-  }
-
   return (
     <div>
       <PageHeader
-        title="Shopping"
-        subtitle="Plan a list, restock the pantry, and keep an eye on spend."
+        title="Shop"
+        icon={<IconShop className="h-5 w-5" />}
+        subtitle={
+          listCount > 0
+            ? `${visibleItems.length} shown · ${visibleTotal.toFixed(0)} Kč`
+            : 'Check things off as you go.'
+        }
         actions={
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={startAddListItem}>
-              Add to list
-            </Button>
-            <Button onClick={startCreateRestock}>Restock</Button>
-          </div>
+          <Button variant="secondary" className="gap-1.5" onClick={startAddListItem}>
+            <IconPlus className="h-4 w-4" />
+            Add
+          </Button>
         }
       />
 
-      {listCount > 0 ? (
-        <p className="mb-4 rounded-[var(--radius-card)] border border-accent/25 bg-accent/5 px-3 py-2 text-sm text-ink-muted">
-          Open list · {listCount} item{listCount === 1 ? '' : 's'} from your week plan (or manual
-          adds).{' '}
-          <button
-            type="button"
-            className="text-accent-deep underline"
-            onClick={() => navigate('/')}
-          >
-            Back to Plan
-          </button>
-        </p>
-      ) : null}
-
-      <div className="mb-5 grid grid-cols-2 gap-3">
-        <div className="card-elevated p-4">
-          <p className="text-xs text-ink-muted">This week</p>
-          <p className="font-display text-2xl text-accent-deep">{spendWeek.toFixed(0)} Kč</p>
-        </div>
-        <div className="card-elevated p-4">
-          <p className="text-xs text-ink-muted">This month</p>
-          <p className="font-display text-2xl text-accent-deep">{spendMonth.toFixed(0)} Kč</p>
-        </div>
+      <div className="mb-5 flex flex-wrap gap-2">
+        {listItems.length > 0 ? (
+          <>
+            <Button
+              className="flex-1 gap-2"
+              disabled={selectedItems.length === 0}
+              onClick={() => void markPurchased()}
+            >
+              <IconCheck className="h-4 w-4" />
+              Bought{selectedItems.length > 0 ? ` (${selectedItems.length})` : ''}
+            </Button>
+            <Button variant="secondary" onClick={toggleSelectAll}>
+              {allSelected ? 'None' : 'All'}
+            </Button>
+          </>
+        ) : null}
+        <Button variant="ghost" onClick={startCreateRestock}>
+          Restock
+        </Button>
       </div>
 
-      <section className="mb-6">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg">Shopping list</h2>
-          <div className="flex flex-wrap gap-2">
-            {listItems.length > 0 ? (
-              <>
-                <Button variant="ghost" className="!py-1 !text-xs" onClick={toggleSelectAll}>
-                  {allSelected ? 'Deselect all' : 'Select all'}
-                </Button>
-                <Button variant="ghost" className="!py-1 !text-xs" onClick={() => void clearList()}>
-                  Clear
-                </Button>
-                <Button
-                  className="!py-1 !text-xs"
-                  disabled={selectedItems.length === 0}
-                  onClick={() => void markPurchased()}
-                >
-                  Mark purchased
-                  {selectedItems.length > 0 ? ` (${selectedItems.length})` : ''}
-                </Button>
-              </>
-            ) : null}
-            <Button variant="secondary" className="!py-1 !text-xs" onClick={startAddListItem}>
-              Add item
+      <section className="mb-4 space-y-3">
+        <SegmentedControl
+          value={horizon}
+          onChange={setHorizon}
+          options={[
+            { id: 'next', label: 'Next cook' },
+            { id: 'through', label: 'Through date' },
+          ]}
+        />
+        {horizon === 'through' ? (
+          <Field label="Shop through">
+            <DateField title="Shop through" value={throughDate} onChange={setThroughDate} />
+          </Field>
+        ) : null}
+        <p className="text-sm text-ink-muted">
+          Amounts follow the cooks in this horizon. Store and a price you type stay put. Hand-added
+          items stay on the list.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={storeFilter === 'all' ? 'primary' : 'secondary'}
+            className="!py-1 !text-xs"
+            onClick={() => setStoreFilter('all')}
+          >
+            All stores
+          </Button>
+          {stores.map((store) => (
+            <Button
+              key={store}
+              variant={storeFilter === store ? 'primary' : 'secondary'}
+              className="!py-1 !text-xs"
+              onClick={() => setStoreFilter(store)}
+            >
+              {store}
             </Button>
-          </div>
+          ))}
         </div>
-
-        {listItems.length === 0 ? (
-          <EmptyState
-            title="List is empty"
-            body="Add pantry ingredients you plan to buy — amount, brand, price, and store."
+        <Field label="Category">
+          <SelectField<IngredientCategory | 'all'>
+            title="Category"
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={[
+              { id: 'all', label: 'All categories' },
+              ...INGREDIENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+            ]}
           />
-        ) : (
-          <>
-            <div className="mb-3 grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-line bg-paper-elevated px-3 py-2">
-                <p className="text-xs text-ink-muted">
-                  {selectedItems.length > 0 ? 'Selected total' : 'Estimated total'}
-                </p>
-                <p className="font-display text-xl text-accent-deep">
-                  {(selectedItems.length > 0 ? selectedTotal : listTotal).toFixed(0)} Kč
-                </p>
-                {selectedItems.length > 0 && selectedItems.length < listItems.length ? (
-                  <p className="text-xs text-ink-muted">of {listTotal.toFixed(0)} Kč on list</p>
-                ) : null}
-              </div>
-              <div className="rounded-lg border border-line bg-paper-elevated px-3 py-2">
-                <p className="text-xs text-ink-muted">
-                  {selectedItems.length > 0 ? 'Selected stores' : 'Stores to visit'}
-                </p>
-                <p className="text-sm font-medium">
-                  {(selectedItems.length > 0 ? selectedStores : stores).length > 0
-                    ? (selectedItems.length > 0 ? selectedStores : stores).join(', ')
-                    : 'Not set yet'}
-                </p>
-              </div>
-            </div>
-            {selectedItems.length === 0 ? (
-              <p className="mb-3 text-xs text-ink-muted">
-                Select items you’ve bought, then mark them purchased to restock.
-              </p>
-            ) : null}
-            {stores.length > 1 ? (
-              <div className="mb-3 space-y-2">
-                {stores.map((store) => {
-                  const storeItems = listItems.filter((i) => i.store.trim() === store)
-                  const storeTotal = storeItems.reduce((s, i) => s + (Number(i.cost) || 0), 0)
-                  return (
-                    <div
-                      key={store}
-                      className="rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-sm"
-                    >
-                      <div className="flex justify-between gap-2 font-medium">
-                        <span>{store}</span>
-                        <span>{storeTotal.toFixed(0)} Kč</span>
-                      </div>
-                      <p className="text-xs text-ink-muted">
-                        {storeItems.length} item{storeItems.length === 1 ? '' : 's'}
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : null}
-            <ul className="space-y-2">
-              {listItems.map((item) => {
-                const ing = ingById.get(item.ingredientId)
-                const checked = selectedIds.has(item.id)
-                return (
-                  <li
-                    key={item.id}
-                    className={`flex items-stretch gap-2 rounded-[var(--radius-card)] border bg-paper-elevated transition ${
-                      checked ? 'border-accent/50 bg-accent/5' : 'border-line'
-                    }`}
-                  >
-                    <div className="flex items-center px-3">
-                      <Checkbox
-                        checked={checked}
-                        onChange={() => toggleSelected(item.id)}
-                        label={<span className="sr-only">Select {ing?.name ?? 'item'}</span>}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => startEditListItem(item)}
-                      className="min-w-0 flex-1 px-1 py-3 pr-3 text-left"
-                    >
-                      <div className="flex justify-between gap-2">
-                        <span className="font-medium">{ing?.name ?? 'Ingredient'}</span>
-                        <span>{(Number(item.cost) || 0).toFixed(0)} Kč</span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1.5 text-sm text-ink-muted">
-                        <span>
-                          {item.amount || '—'} {ing?.unit}
-                        </span>
-                        <span>·</span>
-                        <span>{item.brand || 'No brand'}</span>
-                        {item.store ? (
-                          <>
-                            <span>·</span>
-                            <Badge tone="accent">{item.store}</Badge>
-                          </>
-                        ) : null}
-                      </div>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </>
-        )}
+        </Field>
       </section>
 
       <section className="mb-6">
-        <h2 className="mb-2 text-lg">Running low</h2>
-        {lowItems.length === 0 ? (
-          <p className="text-sm text-ink-muted">Pantry looks steady.</p>
+
+        {visibleItems.length === 0 ? (
+          <EmptyState
+            title={listItems.length === 0 ? 'List is empty' : 'Nothing in this filter'}
+            body={
+              listItems.length === 0
+                ? 'The next cook’s shortfalls appear here. You can still add something by hand.'
+                : 'Clear the store or category filter to see the rest of the list.'
+            }
+          />
         ) : (
           <>
-            <WarnBanner>These ingredients are at or below their low-stock threshold.</WarnBanner>
-            <ul className="mt-3 space-y-2">
-              {lowItems.map((ing) => {
-                const onList = listItems.some((i) => i.ingredientId === ing.id)
+            <div className="space-y-5">
+              {grouped.map(([store, items]) => {
+                const subtotal = items.reduce((s, i) => s + (Number(i.cost) || 0), 0)
                 return (
-                  <li
-                    key={ing.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-sm"
-                  >
-                    <span className="min-w-0">
-                      {ing.name}{' '}
-                      <Badge tone="warn">
-                        {stock.get(ing.id!) ?? 0} {ing.unit}
-                      </Badge>
-                    </span>
-                    <Button
-                      variant="ghost"
-                      className="!py-1 !text-xs shrink-0"
-                      disabled={onList}
-                      onClick={() => void addLowToList(ing.id!)}
-                    >
-                      {onList ? 'On list' : 'Add to list'}
-                    </Button>
-                  </li>
+                  <section key={store}>
+                    <div className="mb-2 flex items-baseline justify-between gap-2">
+                      <h2 className="text-lg">{store}</h2>
+                      <span className="text-sm text-ink-muted">{subtotal.toFixed(0)} Kč</span>
+                    </div>
+                    <ul className="space-y-2">
+                      {items.map((item) => {
+                        const ing = ingById.get(item.ingredientId)
+                        const checked = selectedIds.has(item.id)
+                        return (
+                          <li
+                            key={item.id}
+                            className={`flex items-stretch gap-2 rounded-[var(--radius-card)] bg-paper-elevated shadow-card transition ${
+                              checked ? 'opacity-45' : ''
+                            }`}
+                          >
+                            <div className="flex items-center px-3">
+                              <Checkbox
+                                checked={checked}
+                                onChange={() => toggleSelected(item.id)}
+                                label={<span className="sr-only">Select {ing?.name ?? 'item'}</span>}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => startEditListItem(item)}
+                              className="min-w-0 flex-1 px-1 py-3 pr-3 text-left"
+                            >
+                              <div className="flex justify-between gap-2">
+                                <span className="font-medium">{ing?.name ?? 'Ingredient'}</span>
+                                <span>{(Number(item.cost) || 0).toFixed(0)} Kč</span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-1.5 text-sm text-ink-muted">
+                                <span>
+                                  {item.amount || '—'} {ing?.unit}
+                                </span>
+                                <span>·</span>
+                                <span>{item.brand || 'No brand'}</span>
+                                {item.source === 'plan' ? <Badge>From plan</Badge> : <Badge>Added</Badge>}
+                              </div>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </section>
                 )
               })}
-            </ul>
+            </div>
           </>
         )}
       </section>
@@ -493,7 +468,7 @@ export function ShoppingPage() {
                 <button
                   type="button"
                   onClick={() => startEditRestock(r)}
-                  className="w-full card-elevated px-3 py-3 text-left transition hover:border-accent/40"
+                  className="w-full border-b border-line px-1 py-3 text-left transition hover:bg-ink/[0.03]"
                 >
                   <div className="flex justify-between gap-2">
                     <span className="font-medium">{format(parseISO(r.date), 'd MMM yyyy')}</span>
@@ -549,6 +524,11 @@ export function ShoppingPage() {
       />
     </div>
   )
+}
+
+function lineUnitCost(line: RestockLine): number | undefined {
+  if (line.amount <= 0 || line.cost <= 0) return undefined
+  return Math.round((line.cost / line.amount) * 10000) / 10000
 }
 
 function emptyLine(ingredientId: number): RestockLine {
@@ -771,6 +751,7 @@ function RestockSheet({
                 expiryDate: line.expiryDate,
                 imageDataUrl: line.imageDataUrl,
                 nutritionOverride: line.nutritionOverride,
+                unitCost: lineUnitCost(line) ?? item.unitCost,
                 updatedAt: now,
               })
             }
@@ -783,6 +764,7 @@ function RestockSheet({
               expiryDate: line.expiryDate,
               imageDataUrl: line.imageDataUrl,
               nutritionOverride: line.nutritionOverride,
+              unitCost: lineUnitCost(line),
               createdAt: now,
               updatedAt: now,
             })
@@ -808,6 +790,7 @@ function RestockSheet({
             expiryDate: line.expiryDate,
             imageDataUrl: line.imageDataUrl,
             nutritionOverride: line.nutritionOverride,
+            unitCost: lineUnitCost(line),
             createdAt: now,
             updatedAt: now,
           })

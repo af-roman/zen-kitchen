@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   downloadKitchenBackup,
   exportKitchenBackup,
@@ -12,6 +13,7 @@ import { appAlert, appConfirm } from '@/shared/dialog'
 import { Button, PageHeader, WarnBanner } from '@/shared/ui'
 
 export function BackupPage() {
+  const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -97,6 +99,11 @@ export function BackupPage() {
       <PageHeader
         title="Backup & sync"
         subtitle="Cloud sync across your devices, or export a full JSON snapshot."
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/more')}>
+            Back
+          </Button>
+        }
       />
       <WarnBanner>
         Local data usually survives app updates. Cloud sync (or a downloaded backup) matters for

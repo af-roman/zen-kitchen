@@ -55,8 +55,13 @@ export function SelectField<T extends string | number = string>({
           compact ? 'px-2.5 py-1.5 text-sm' : ''
         } ${className}`}
       >
-        <span className={`min-w-0 truncate ${selected ? 'text-ink' : 'text-ink-muted'}`}>
-          {selected?.label ?? placeholder}
+        <span className="min-w-0 flex-1">
+          <span className={`block truncate ${selected ? 'text-ink' : 'text-ink-muted'}`}>
+            {selected?.label ?? placeholder}
+          </span>
+          {selected?.detail ? (
+            <span className="block truncate text-xs font-normal text-ink-muted">{selected.detail}</span>
+          ) : null}
         </span>
         <ChevronDown className="shrink-0 text-ink-muted" />
       </button>
@@ -160,6 +165,7 @@ export function NumberField({
   className = '',
   disabled,
   inputMode = 'decimal',
+  compact = false,
 }: {
   value: number
   onChange: (value: number) => void
@@ -169,6 +175,8 @@ export function NumberField({
   className?: string
   disabled?: boolean
   inputMode?: 'decimal' | 'numeric'
+  /** Narrow control: the value box fits a short number, not a full-width field. */
+  compact?: boolean
 }) {
   function clamp(n: number) {
     let next = n
@@ -185,19 +193,30 @@ export function NumberField({
     onChange(rounded)
   }
 
+  const buttonClass = compact
+    ? 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-base text-ink transition hover:border-ink/40 disabled:opacity-40'
+    : 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40'
+
   return (
-    <div className={`flex items-stretch gap-1.5 ${className}`}>
+    <div
+      className={`flex items-stretch ${compact ? 'w-auto shrink-0 gap-1' : 'w-full min-w-0 gap-1.5'} ${className}`}
+    >
       <button
         type="button"
         aria-label="Decrease"
         disabled={disabled || (min != null && value <= min)}
         onClick={() => bump(-step)}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40"
+        className={buttonClass}
       >
         −
       </button>
       <input
-        className={`${inputClass} h-10 text-center tabular-nums`}
+        className={
+          compact
+            ? `${inputClass} h-8 !w-10 shrink-0 !px-0 text-center text-sm tabular-nums`
+            : `${inputClass} h-10 min-w-0 flex-1 basis-0 !w-auto px-2 text-center tabular-nums`
+        }
+        size={compact ? 3 : 8}
         type="text"
         inputMode={inputMode}
         disabled={disabled}
@@ -218,7 +237,7 @@ export function NumberField({
         aria-label="Increase"
         disabled={disabled || (max != null && value >= max)}
         onClick={() => bump(step)}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40"
+        className={buttonClass}
       >
         +
       </button>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { CookLogList } from '@/features/log/CookLogPage'
 import { db } from '@/db/database'
@@ -13,9 +14,10 @@ import {
 } from '@/domain/logbook'
 import { useGoals } from '@/shared/hooks'
 import { MacroBar } from '@/shared/MacroBar'
-import { PageHeader, SegmentedControl } from '@/shared/ui'
+import { Button, PageHeader, SegmentedControl } from '@/shared/ui'
 
 export function NotebookPage() {
+  const navigate = useNavigate()
   const goals = useGoals()
   const today = todayISO()
   const [window, setWindow] = useState<LogWindow>(7)
@@ -65,7 +67,12 @@ export function NotebookPage() {
     <div>
       <PageHeader
         title="Logbook"
-        subtitle="Complete days only. A past meal counts unless you leave it out. Marking today as kept records the meal; it joins this average tomorrow."
+        subtitle="Complete days only. A past meal counts unless you leave it out. Marking today as consumed records the meal; it joins this average tomorrow."
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/more')}>
+            Back
+          </Button>
+        }
       />
       <SegmentedControl
         className="mb-5"

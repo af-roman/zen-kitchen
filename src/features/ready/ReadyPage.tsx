@@ -8,7 +8,7 @@ import type { BatchStorage, Ingredient, ReadyBatch, Recipe } from '@/domain/type
 import { dishCategoryLabel } from '@/domain/dishTaxonomy'
 import { appConfirm } from '@/shared/dialog'
 import { DateField, NumberField, SelectField } from '@/shared/forms'
-import { IconPantry, IconServe, IconStock } from '@/shared/icons'
+import { IconPantry, IconServe } from '@/shared/icons'
 import { Badge, Button, EmptyState, Field, PageHeader } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 import { MacroInline } from '@/shared/MacroBar'
@@ -54,8 +54,6 @@ export function ReadyPage() {
     <div>
       <PageHeader
         title="Stock"
-        icon={<IconStock className="h-5 w-5" />}
-        subtitle="Cooked batches ready to serve."
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" className="gap-1.5" onClick={() => navigate('/pantry')}>

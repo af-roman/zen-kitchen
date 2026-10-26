@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { useBodyScrollLock } from '@/shared/scrollLock'
 import { Button, inputClass } from '@/shared/ui'
 
 type AlertRequest = {
@@ -169,6 +170,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     }
   }, [current])
 
+  useBodyScrollLock(current != null)
+
   useEffect(() => {
     if (!current) return
     const onKey = (e: KeyboardEvent) => {
@@ -208,7 +211,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     <DialogContext.Provider value={api}>
       {children}
       {current ? (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <button
             type="button"
             aria-label="Dismiss"
@@ -216,7 +219,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
             onClick={() => dismiss(false)}
           />
           <div
-            className="relative z-10 w-full max-w-md rounded-t-[1.75rem] bg-paper-elevated p-5 shadow-card sm:rounded-[1.75rem]"
+            className="relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full max-w-md overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated p-5 shadow-card"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="app-dialog-title"

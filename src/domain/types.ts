@@ -94,9 +94,14 @@ export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 export const MEAL_SLOTS: { id: MealSlot; label: string }[] = [
   { id: 'breakfast', label: 'Breakfast' },
   { id: 'lunch', label: 'Lunch' },
-  { id: 'dinner', label: 'Dinner' },
   { id: 'snack', label: 'Snack' },
+  { id: 'dinner', label: 'Dinner' },
 ]
+
+export function mealSlotIndex(meal: MealSlot): number {
+  const index = MEAL_SLOTS.findIndex((slot) => slot.id === meal)
+  return index < 0 ? MEAL_SLOTS.length : index
+}
 
 /** Where a cooked dish batch is stored. */
 export type BatchStorage = 'fridge' | 'freezer'

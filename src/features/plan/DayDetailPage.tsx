@@ -24,9 +24,10 @@ import {
   servingItemNeedsFood,
 } from '@/domain/servings'
 import { useGoals } from '@/shared/hooks'
+import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
 import { appAlert } from '@/shared/dialog'
 import { MacroBar, MacroInline } from '@/shared/MacroBar'
-import { Badge, Button, EmptyState, PageHeader, WarnBanner } from '@/shared/ui'
+import { Badge, Button, EmptyState, PageHeader, RemoveButton, WarnBanner } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
 export function DayDetailPage() {
@@ -318,7 +319,7 @@ export function DayDetailPage() {
                   </span>
                   <span className="flex flex-wrap items-center gap-2">
                     {mealBroken ? <Badge tone="warn">Needs food</Badge> : null}
-                    {m.kept ? <Badge tone="ok">Kept</Badge> : null}
+                    {m.kept ? <Badge tone="ok">Consumed</Badge> : null}
                     {m.skipped ? <Badge>Left out</Badge> : null}
                     {past && m.id != null ? (
                       <Button
@@ -328,6 +329,13 @@ export function DayDetailPage() {
                       >
                         {m.skipped ? 'Count in stats' : 'Leave out of stats'}
                       </Button>
+                    ) : null}
+                    {canRemovePlannedMeal(m, date, today) ? (
+                      <RemoveButton
+                        label="Remove"
+                        className="!px-3 !py-1 !text-xs"
+                        onClick={() => void confirmRemovePlannedMeal(date, slot.id)}
+                      />
                     ) : null}
                   </span>
                 </div>

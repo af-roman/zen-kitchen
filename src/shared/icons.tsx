@@ -234,6 +234,17 @@ export function IconBackup(props: IconProps) {
   )
 }
 
+/** Small warning mark for a value past its target. */
+export function IconWarn(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3.5 21 19.5H3L12 3.5z" />
+      <path d="M12 9.5v4" />
+      <path d="M12 16.8h.01" />
+    </Icon>
+  )
+}
+
 export function IconPlus(props: IconProps) {
   return (
     <Icon {...props}>
@@ -267,22 +278,25 @@ export function IconMacroEnergy(props: IconProps) {
   )
 }
 
-/** Macro KPI: carbs */
+/** Macro KPI: carbs (sugar cube — geometric, so it doesn’t read as the fat drop). */
 export function IconMacroCarbs(props: IconProps) {
   return (
     <Icon {...props}>
-      <path d="M12 4c-3 4-6 6.5-6 10a6 6 0 1 0 12 0c0-3.5-3-6-6-10z" />
-      <path d="M10 14h4" />
+      <path d="M12 3.5 19.5 7.75 12 12 4.5 7.75 12 3.5z" />
+      <path d="M4.5 7.75V16L12 20.25V12" />
+      <path d="M19.5 7.75V16L12 20.25" />
     </Icon>
   )
 }
 
-/** Macro KPI: protein (drumstick) */
+/** Macro KPI: protein (drumstick — meat, bone, and the knuckle). */
 export function IconMacroProtein(props: IconProps) {
   return (
     <Icon {...props}>
-      <path d="M15.5 4.5a3.5 3.5 0 0 1 4 4c0 1.5-.8 2.4-2 3.5L10 20a3 3 0 0 1-4.2-4.2l7.5-7.8c1.1-1.2 2-2 2.2-3.5z" />
-      <path d="M14.5 9.5 8 16" />
+      <ellipse cx="14.6" cy="8.8" rx="6.3" ry="4.1" transform="rotate(-50 14.6 8.8)" />
+      <path d="M10.8 13.2 8 16.2" />
+      <circle cx="6.1" cy="16.6" r="1.55" />
+      <circle cx="8.6" cy="19.3" r="1.55" />
     </Icon>
   )
 }

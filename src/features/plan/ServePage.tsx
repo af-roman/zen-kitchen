@@ -41,7 +41,7 @@ import {
   validateServePicks,
 } from '@/db/servingOps'
 import { useGoals } from '@/shared/hooks'
-import { MacroBar, MacroInline } from '@/shared/MacroBar'
+import { MacroBar, MacroInline, MacroRings } from '@/shared/MacroBar'
 import { Sheet } from '@/shared/Sheet'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { DateField, NumberField, SelectField } from '@/shared/forms'
@@ -347,6 +347,11 @@ export function ServePage() {
       <PageHeader
         title="Serve"
         subtitle="Put Ready portions, planned session dishes, or other food onto a meal for the week."
+        actions={
+          <Button variant="secondary" onClick={() => navigate(-1)}>
+            Back
+          </Button>
+        }
       />
       <div className="space-y-4">
         {isPastDate(date) ? (
@@ -779,11 +784,11 @@ export function ServePage() {
 
             <div className="border-t border-line pt-4">
               <h3 className="mb-2 text-sm font-medium text-ink">This meal</h3>
-              <MacroBar
+              <MacroRings
                 nutrition={mealNutrition}
                 goals={goals}
-                compact
-                goalCaption="This meal vs your daily targets"
+                size="sm"
+                caption="This meal vs your daily targets"
               />
             </div>
 

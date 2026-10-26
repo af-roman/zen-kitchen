@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '@/domain/nutrition'
 import { NumberField } from '@/shared/forms'
-import { Button } from './ui'
+import { Button, Field } from './ui'
 
 function playBeep(ctx: AudioContext) {
   const now = ctx.currentTime
@@ -132,39 +132,15 @@ export function CookTimer({
 
   return (
     <div
-      className={`mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-paper px-3 py-2 ${
+      className={`mt-3 min-w-0 space-y-3 rounded-lg border border-line bg-paper px-3 py-3 ${
         running ? 'timer-active' : ''
       } ${alarm ? 'border-warn bg-warn/10' : ''}`}
     >
-      {running ? (
-        <div className="font-display text-lg tabular-nums text-ink">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-display text-3xl tabular-nums tracking-tight text-ink">
           {formatDuration(remaining)}
-        </div>
-      ) : (
-        <div className="flex min-w-0 items-center gap-1">
-          <div className="w-28">
-            <NumberField
-              value={minutes}
-              min={0}
-              step={1}
-              inputMode="numeric"
-              onChange={(m) => setFromParts(m, seconds)}
-            />
-          </div>
-          <span className="font-display text-lg text-ink">:</span>
-          <div className="w-28">
-            <NumberField
-              value={seconds}
-              min={0}
-              max={59}
-              step={1}
-              inputMode="numeric"
-              onChange={(s) => setFromParts(minutes, s)}
-            />
-          </div>
-        </div>
-      )}
-      <div className="ml-auto flex flex-wrap justify-end gap-1">
+        </p>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
         {!running ? (
           <Button
             variant="secondary"
@@ -198,7 +174,31 @@ export function CookTimer({
             Stop alarm
           </Button>
         ) : null}
+        </div>
       </div>
+      {!running ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Minutes">
+            <NumberField
+              value={minutes}
+              min={0}
+              step={1}
+              inputMode="numeric"
+              onChange={(m) => setFromParts(m, seconds)}
+            />
+          </Field>
+          <Field label="Seconds">
+            <NumberField
+              value={seconds}
+              min={0}
+              max={59}
+              step={1}
+              inputMode="numeric"
+              onChange={(s) => setFromParts(minutes, s)}
+            />
+          </Field>
+        </div>
+      ) : null}
     </div>
   )
 }

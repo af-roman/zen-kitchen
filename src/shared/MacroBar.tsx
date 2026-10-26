@@ -6,9 +6,10 @@ import {
   IconMacroEnergy,
   IconMacroFat,
   IconMacroProtein,
+  IconWarn,
 } from '@/shared/icons'
 
-export type MacroRingSize = 'xs' | 'sm' | 'md' | 'lg'
+export type MacroRingSize = 'xs' | 'sm' | 'lg'
 
 type MacroRow = {
   key: string
@@ -58,9 +59,8 @@ function macroRows(nutrition: Nutrition, goals: Goals): MacroRow[] {
 }
 
 const SIZE = {
-  xs: { px: 22, stroke: 2.5, label: 'text-[8px] font-bold leading-none', showIcon: true },
+  xs: { px: 32, stroke: 3, label: 'text-[10px] font-bold leading-none', showIcon: true },
   sm: { px: 32, stroke: 3, label: 'text-[9px] font-bold leading-none', showIcon: true },
-  md: { px: 48, stroke: 3.5, label: 'text-[10px] font-semibold', showIcon: false },
   lg: { px: 76, stroke: 5, label: 'text-xs font-semibold', showIcon: false },
 } as const
 
@@ -76,14 +76,23 @@ function MacroRingGauge({
   const over = row.goal > 0 && row.value > row.goal
   const r = 15.5
   const c = 2 * Math.PI * r
-  const fill = Math.min(1, pct / 100)
-  const dash = `${fill * c} ${c}`
-  const stroke = over ? 'var(--color-warn)' : 'var(--color-lacquer)'
+  // Up to one full ring of the normal color, then a second arc for the amount past the target.
+  const baseFill = over ? 1 : Math.min(1, Math.max(0, pct / 100))
+  const overFill = over ? Math.min(1, (pct - 100) / 100) : 0
+  const baseDash = `${baseFill * c} ${c}`
+  // Inner arc so the full target ring stays visible and the overflow sits on a second layer.
+  const overR = r - cfg.stroke * 0.9
+  const overC = 2 * Math.PI * overR
+  const overDash = `${overFill * overC} ${overC}`
   const pctLabel = `${Math.min(999, Math.round(pct))}`
   const Glyph = row.Icon
 
+  const fluid = size === 'lg'
   const ring = (
-    <div className="relative shrink-0" style={{ width: cfg.px, height: cfg.px }}>
+    <div
+      className={fluid ? 'relative aspect-square w-full' : 'relative shrink-0'}
+      style={fluid ? { maxWidth: cfg.px } : { width: cfg.px, height: cfg.px }}
+    >
       <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90" aria-hidden>
         <circle
           cx="18"
@@ -98,27 +107,34 @@ function MacroRingGauge({
           cy="18"
           r={r}
           fill="none"
-          stroke={stroke}
+          stroke="var(--color-lacquer)"
           strokeWidth={cfg.stroke}
           strokeLinecap="round"
-          strokeDasharray={dash}
+          strokeDasharray={baseDash}
           className="transition-[stroke-dasharray] duration-500 ease-out"
         />
+        {overFill > 0 ? (
+          <circle
+            cx="18"
+            cy="18"
+            r={overR}
+            fill="none"
+            stroke="var(--color-warn)"
+            strokeWidth={Math.max(2, cfg.stroke * 0.72)}
+            strokeLinecap="round"
+            strokeDasharray={overDash}
+            className="transition-[stroke-dasharray] duration-500 ease-out"
+          />
+        ) : null}
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
-        {size === 'xs' || size === 'sm' ? (
-          <span className={`${cfg.label} tabular-nums ${over ? 'text-warn' : 'text-ink'}`}>
-            {pctLabel}
-          </span>
-        ) : size === 'md' ? (
-          <span className={`text-[10px] font-semibold tabular-nums ${over ? 'text-warn' : 'text-ink'}`}>
-            {pctLabel}%
-          </span>
-        ) : (
-          <span className={`text-sm font-semibold tabular-nums ${over ? 'text-warn' : 'text-ink'}`}>
-            {Math.round(row.value)}
-          </span>
-        )}
+        <span
+          className={`tabular-nums ${over ? 'text-warn' : 'text-ink'} ${
+            size === 'lg' ? 'text-sm font-semibold' : cfg.label
+          }`}
+        >
+          {pctLabel}
+        </span>
       </div>
     </div>
   )
@@ -127,8 +143,8 @@ function MacroRingGauge({
     <div
       className={
         cfg.showIcon
-          ? 'flex items-center gap-0.5'
-          : 'flex flex-col items-center gap-0.5'
+          ? 'flex min-w-0 items-center gap-1'
+          : 'flex min-w-0 w-full flex-col items-center gap-0.5'
       }
       title={`${row.key}: ${Math.round(row.value)}${row.unit} / ${Math.round(row.goal)}${row.unit}${
         over ? ` (+${Math.round(row.value - row.goal)})` : ''
@@ -136,20 +152,21 @@ function MacroRingGauge({
     >
       {cfg.showIcon ? (
         <Glyph
-          className={`h-3 w-3 shrink-0 ${over ? 'text-warn' : 'text-ink-muted'}`}
+          className={`h-4 w-4 shrink-0 ${over ? 'text-warn' : 'text-ink-muted'}`}
+          strokeWidth={2.25}
           aria-hidden
         />
       ) : null}
       {ring}
       {size === 'lg' ? (
-        <p className={`text-center text-[11px] tabular-nums ${over ? 'text-warn' : 'text-ink-muted'}`}>
+        <p className="max-w-full text-center text-[11px] leading-tight tabular-nums text-ink-muted">
           <span className="font-medium text-ink">{row.key}</span>
           <br />
-          {Math.round(row.value)}/{Math.round(row.goal)}
-          {over ? ` · over` : ''}
+          <span className="inline-flex items-center justify-center gap-1">
+            {Math.round(row.value)}/{Math.round(row.goal)}
+            {over ? <IconWarn className="h-3 w-3 text-warn" title="Over target" /> : null}
+          </span>
         </p>
-      ) : size === 'md' ? (
-        <p className={`text-[10px] ${over ? 'text-warn' : 'text-ink-muted'}`}>{row.short}</p>
       ) : null}
     </div>
   )
@@ -157,15 +174,14 @@ function MacroRingGauge({
 
 /**
  * Four circular gauges (Energy / Carbs / Protein / Fat) vs daily goals.
- * - `xs` — inline day header (icon + % in ring)
+ * - `xs` — inline day header (icon + number in ring)
  * - `sm` — compact row
- * - `md` — section headers
  * - `lg` — planner / dashboard
  */
 export function MacroRings({
   nutrition,
   goals,
-  size = 'md',
+  size = 'lg',
   caption,
   className = '',
 }: {
@@ -176,14 +192,17 @@ export function MacroRings({
   className?: string
 }) {
   const rows = macroRows(nutrition, goals)
-  const gap =
-    size === 'lg' ? 'gap-4 sm:gap-6' : size === 'md' ? 'gap-3' : size === 'xs' ? 'gap-1.5' : 'gap-2'
+  const gap = size === 'lg' ? 'gap-4 sm:gap-6' : size === 'xs' ? 'gap-1.5' : 'gap-2'
 
   return (
     <div className={className}>
       {caption ? <p className="mb-2 text-xs text-ink-muted">{caption}</p> : null}
       <div
-        className={`flex items-center ${size === 'xs' ? 'justify-end' : 'justify-between'} ${gap}`}
+        className={
+          size === 'lg'
+            ? 'grid w-full grid-cols-4 gap-2 sm:gap-4'
+            : `flex w-full min-w-0 flex-nowrap items-center ${size === 'xs' ? 'justify-end' : 'justify-between'} ${gap}`
+        }
         role="group"
         aria-label="Macros vs goals"
       >
@@ -199,19 +218,17 @@ export function MacroRings({
 export function MacroBar({
   nutrition,
   goals,
-  compact = false,
   goalCaption = 'of daily target',
 }: {
   nutrition: Nutrition
   goals: Goals
-  compact?: boolean
   goalCaption?: string
 }) {
   return (
     <MacroRings
       nutrition={nutrition}
       goals={goals}
-      size={compact ? 'md' : 'lg'}
+      size="lg"
       caption={goalCaption || undefined}
     />
   )

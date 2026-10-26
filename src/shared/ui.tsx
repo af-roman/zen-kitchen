@@ -14,21 +14,27 @@ export function PageHeader({
   icon?: ReactNode
 }) {
   return (
-    <header className="mb-6 flex items-start justify-between gap-3">
-      <div className="min-w-0">
+    <header className="mb-6 flex flex-wrap items-start justify-between gap-x-3 gap-y-3">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-3">
           {icon ? (
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-lacquer/10 text-lacquer">
               {icon}
             </span>
           ) : null}
-          <h1 className="text-[1.75rem] leading-tight sm:text-3xl">{title}</h1>
+          <h1 className="min-w-0 break-words text-[1.75rem] leading-tight sm:text-3xl">{title}</h1>
         </div>
         {subtitle ? (
-          <p className={`mt-1.5 text-sm text-ink-muted ${icon ? 'pl-14' : ''}`}>{subtitle}</p>
+          <p className={`mt-1.5 break-words text-sm text-ink-muted ${icon ? 'pl-14' : ''}`}>
+            {subtitle}
+          </p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
+          {actions}
+        </div>
+      ) : null}
     </header>
   )
 }

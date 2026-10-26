@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react'
 import { db } from '@/db/database'
-import type { Ingredient, MeasureUnit, RecipeIngredientLine, RecipeStep, Unit } from '@/domain/types'
+import {
+  INGREDIENT_CATEGORIES,
+  type Ingredient,
+  type MeasureUnit,
+  type RecipeIngredientLine,
+  type RecipeStep,
+  type Unit,
+} from '@/domain/types'
 import { extractRecipeFromHtml, parseYieldPortions } from '@/domain/recipeImport/jsonld'
 import {
   parseIngredientLine,
@@ -16,6 +23,8 @@ import { mealRolesFromCategory } from '@/domain/mealRoles'
 import { canUseMeasureUnit, toStockAmount } from '@/domain/measures'
 import { DEFAULT_SUBRECIPE } from '@/domain/recipeMath'
 import type { DishCategory, MealRole } from '@/domain/types'
+import { NumberField } from '@/shared/forms'
+import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
 import { Sheet } from '@/shared/Sheet'
 import { Button, Field, inputClass } from '@/shared/ui'
 
@@ -77,6 +86,7 @@ export function ImportFromUrlSheet({
     steps: string[]
   } | null>(null)
   const [draftLines, setDraftLines] = useState<DraftLine[] | null>(null)
+  const [mapLineIndex, setMapLineIndex] = useState<number | null>(null)
   /** Local stubs created during this import (id → ingredient), merged with live catalog for picks. */
   const [localStubs, setLocalStubs] = useState<Ingredient[]>([])
 
@@ -91,8 +101,11 @@ export function ImportFromUrlSheet({
     setMeta(null)
     setDraftLines(null)
     setLocalStubs([])
+    setMapLineIndex(null)
     setError(null)
   }
+
+  const mapLine = mapLineIndex != null ? draftLines?.[mapLineIndex] : undefined
 
   function applyExtracted(html: string, sourceUrl: string) {
     const extracted = extractRecipeFromHtml(html)
@@ -309,9 +322,20 @@ export function ImportFromUrlSheet({
             <p className="text-sm text-ink-muted">
               <strong className="text-ink">{meta.name}</strong>
               {' · '}
-              {meta.portions} portions · {draftLines.length} ingredients · {meta.steps.length}{' '}
-              steps
+              {draftLines.length} ingredients · {meta.steps.length} steps
             </p>
+            <Field
+              label="Portions"
+              hint="Change this if the page’s yield doesn’t match the batch you want."
+            >
+              <NumberField
+                value={meta.portions}
+                min={1}
+                step={1}
+                inputMode="numeric"
+                onChange={(portions) => setMeta({ ...meta, portions: Math.max(1, portions) })}
+              />
+            </Field>
             <Field label="Source">
               <input
                 className={inputClass}
@@ -336,75 +360,103 @@ export function ImportFromUrlSheet({
                   {!line.parsed ? (
                     <p className="text-xs text-warn">Couldn’t parse amount/unit — check values</p>
                   ) : null}
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Field label="Amount">
-                      <input
-                        className={inputClass}
-                        type="number"
-                        min={0}
-                        step="any"
-                        value={line.amount}
-                        onChange={(e) => {
-                          const amount = Number(e.target.value)
-                          setDraftLines(
-                            (rows) =>
-                              rows?.map((r, i) => (i === index ? { ...r, amount } : r)) ?? null,
-                          )
-                        }}
-                      />
-                    </Field>
-                    <Field label="Unit">
-                      <select
-                        className={inputClass}
-                        value={line.measureUnit}
-                        onChange={(e) => {
-                          const measureUnit = e.target.value as MeasureUnit
-                          setDraftLines(
-                            (rows) =>
-                              rows?.map((r, i) => (i === index ? { ...r, measureUnit } : r)) ??
-                              null,
-                          )
-                        }}
-                      >
-                        {(['g', 'ml', 'pcs', 'tsp', 'tbsp'] as MeasureUnit[]).map((u) => (
-                          <option key={u} value={u}>
-                            {u}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Map to">
-                      <select
-                        className={inputClass}
-                        value={line.ingredientId ?? ''}
-                        onChange={(e) => {
-                          const ingredientId = e.target.value
-                            ? Number(e.target.value)
-                            : undefined
-                          setDraftLines(
-                            (rows) =>
-                              rows?.map((r, i) => (i === index ? { ...r, ingredientId } : r)) ??
-                              null,
-                          )
-                        }}
-                      >
-                        <option value="">— pick —</option>
-                        {catalog
-                          .slice()
-                          .sort((a, b) => a.name.localeCompare(b.name))
-                          .map((ing) => (
-                            <option key={ing.id} value={ing.id}>
-                              {ing.name}
+                  <div className="mt-2 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Amount">
+                        <input
+                          className={inputClass}
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={line.amount}
+                          onChange={(e) => {
+                            const amount = Number(e.target.value)
+                            setDraftLines(
+                              (rows) =>
+                                rows?.map((r, i) => (i === index ? { ...r, amount } : r)) ?? null,
+                            )
+                          }}
+                        />
+                      </Field>
+                      <Field label="Unit">
+                        <select
+                          className={inputClass}
+                          value={line.measureUnit}
+                          onChange={(e) => {
+                            const measureUnit = e.target.value as MeasureUnit
+                            setDraftLines(
+                              (rows) =>
+                                rows?.map((r, i) => (i === index ? { ...r, measureUnit } : r)) ??
+                                null,
+                            )
+                          }}
+                        >
+                          {(['g', 'ml', 'pcs', 'tsp', 'tbsp'] as MeasureUnit[]).map((u) => (
+                            <option key={u} value={u}>
+                              {u}
                             </option>
                           ))}
-                      </select>
+                        </select>
+                      </Field>
+                    </div>
+                    <Field label="Map to">
+                      <div className="flex items-stretch gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMapLineIndex(index)}
+                          className={`${inputClass} flex min-w-0 flex-1 items-center justify-between gap-2 text-left`}
+                        >
+                          <span
+                            className={`min-w-0 truncate ${
+                              line.ingredientId == null ? 'text-ink-muted' : 'text-ink'
+                            }`}
+                          >
+                            {catalog.find((ing) => ing.id === line.ingredientId)?.name ??
+                              'Choose ingredient…'}
+                          </span>
+                          <svg
+                            viewBox="0 0 20 20"
+                            className="h-4 w-4 shrink-0 text-ink-muted"
+                            fill="none"
+                            aria-hidden
+                          >
+                            <path
+                              d="M5 7.5L10 12.5L15 7.5"
+                              stroke="currentColor"
+                              strokeWidth="1.75"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                        {line.ingredientId != null ? (
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              setDraftLines(
+                                (rows) =>
+                                  rows?.map((r, i) =>
+                                    i === index ? { ...r, ingredientId: undefined } : r,
+                                  ) ?? null,
+                              )
+                            }
+                          >
+                            Clear
+                          </Button>
+                        ) : null}
+                      </div>
                     </Field>
-                    <div className="flex flex-col justify-end gap-1">
-                      <Button variant="secondary" onClick={() => void createStub(index)}>
+                    <div className="flex items-end gap-2">
+                      <Button
+                        variant="secondary"
+                        className="min-w-0 flex-1"
+                        onClick={() => void createStub(index)}
+                      >
                         Create stub
                       </Button>
                       <Button
                         variant="ghost"
+                        className="min-w-0 flex-1"
                         onClick={() =>
                           setDraftLines((rows) => rows?.filter((_, i) => i !== index) ?? null)
                         }
@@ -434,6 +486,31 @@ export function ImportFromUrlSheet({
           </div>
         ) : null}
       </div>
+      <SearchPickerSheet
+        open={mapLineIndex != null}
+        title={mapLine ? `Map “${mapLine.name}”` : 'Map to'}
+        selectedId={mapLine?.ingredientId ?? null}
+        items={catalog.map((ing) => {
+          const cat = INGREDIENT_CATEGORIES.find((c) => c.id === ing.category)?.label
+          return {
+            id: ing.id!,
+            label: ing.name,
+            detail: `${cat ?? ing.category} · ${ing.unit}`,
+            group: ing.category,
+            searchText: `${ing.name} ${cat ?? ''} ${ing.unit}`,
+          }
+        })}
+        groups={INGREDIENT_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
+        onClose={() => setMapLineIndex(null)}
+        onSelect={(ingredientId) => {
+          const index = mapLineIndex
+          if (index == null) return
+          setDraftLines(
+            (rows) => rows?.map((r, i) => (i === index ? { ...r, ingredientId } : r)) ?? null,
+          )
+          setMapLineIndex(null)
+        }}
+      />
     </Sheet>
   )
 }

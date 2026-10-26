@@ -11,12 +11,12 @@ import {
   type ShopHorizon,
   type ShoppingListItem,
 } from '@/domain/types'
-import { todayISO, uid } from '@/domain/kitchen'
+import { isAlwaysAvailable, todayISO, uid } from '@/domain/kitchen'
 import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
-import { IconCheck, IconPlus, IconShop } from '@/shared/icons'
+import { IconCheck, IconPlus } from '@/shared/icons'
 import { Badge, Button, EmptyState, Field, PageHeader, RemoveButton, SegmentedControl, WarnBanner, inputClass, AutoTextarea } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -203,6 +203,13 @@ export function ShoppingPage() {
   }
 
   async function saveListItem(item: Omit<ShoppingListItem, 'id'> & { id?: string }) {
+    const ing = ingredients.find((i) => i.id === item.ingredientId)
+    if (isAlwaysAvailable(ing)) {
+      await appAlert('Tap water is always on hand, so it stays off the shopping list.', {
+        title: 'Always available',
+      })
+      return
+    }
     const listId = await ensureOpenList()
     const list = (await db.shoppingLists.get(listId))!
     const previous = item.id ? list.items.find((i) => i.id === item.id) : undefined
@@ -302,11 +309,8 @@ export function ShoppingPage() {
     <div>
       <PageHeader
         title="Shop"
-        icon={<IconShop className="h-5 w-5" />}
         subtitle={
-          listCount > 0
-            ? `${visibleItems.length} shown · ${visibleTotal.toFixed(0)} Kč`
-            : 'Check things off as you go.'
+          listCount > 0 ? `${visibleItems.length} shown · ${visibleTotal.toFixed(0)} Kč` : undefined
         }
         actions={
           <Button variant="secondary" className="gap-1.5" onClick={startAddListItem}>
@@ -498,7 +502,7 @@ export function ShoppingPage() {
           setListSheetOpen(false)
           setEditingItem(null)
         }}
-        ingredients={ingredients}
+        ingredients={ingredients.filter((i) => !isAlwaysAvailable(i))}
         editing={editingItem}
         onSave={(item) => void saveListItem(item)}
         onDelete={
@@ -515,7 +519,7 @@ export function ShoppingPage() {
       <RestockSheet
         open={restockOpen}
         onClose={closeRestockSheet}
-        ingredients={ingredients}
+        ingredients={ingredients.filter((i) => !isAlwaysAvailable(i))}
         editing={editing}
         prefill={prefill}
         onSavedFromShoppingList={(listId, purchasedItemIds) =>

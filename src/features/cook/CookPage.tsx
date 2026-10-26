@@ -61,6 +61,7 @@ import {
   StepImageGallery,
   StepImageThumb,
 } from '@/shared/StepImageGallery'
+import { assetUrl } from '@/shared/assetUrl'
 import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, NumberField, SelectField } from '@/shared/forms'
@@ -91,17 +92,24 @@ export function CookPage() {
   const allSessions = useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
   const recipes = useLiveQuery(() => db.recipes.toArray(), []) ?? []
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
-  const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
+  const pantryQuery = useLiveQuery(() => db.pantryItems.toArray(), [])
+  const pantryReady = pantryQuery != null
+  const pantry = pantryQuery ?? []
 
   const [activeIdx, setActiveIdx] = useState(0)
   const [localDishes, setLocalDishes] = useState<SessionDishPlan[] | null>(null)
   const [sessionNotes, setSessionNotes] = useState('')
+  const hydratedSessionId = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!session) return
+    if (!session || session.id == null || session.id !== sessionId) return
+    // Live updates echo our own saves. Replacing local dishes here drops the
+    // ingredient list filled in after Start, before that save lands.
+    if (hydratedSessionId.current === session.id) return
     setLocalDishes(session.dishes)
     setSessionNotes(session.notes)
-  }, [session])
+    hydratedSessionId.current = session.id
+  }, [session, sessionId])
 
   useEffect(() => {
     if (!session || session.status !== 'active') return
@@ -144,6 +152,7 @@ export function CookPage() {
       recipeById={recipeById}
       ingById={ingById}
       pantry={pantry}
+      pantryReady={pantryReady}
       goals={goals}
       navigate={navigate}
       onStartCooking={() => void startCooking()}
@@ -186,6 +195,18 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10
 }
 
+function pantryLotOption(item: PantryItem, ing: Ingredient | undefined) {
+  const name = ing?.name ?? 'Pantry item'
+  const left = `${item.amountLeft} ${ing?.unit ?? ''} left`.replace(/\s+/g, ' ').trim()
+  const brand = item.brand.trim()
+  const expiry = item.expiryDate ? `exp ${item.expiryDate}` : ''
+  return {
+    id: item.id!,
+    label: name,
+    detail: [brand, left, expiry].filter(Boolean).join(' · '),
+  }
+}
+
 function usageIngredientOrder(usage: UsageRow[] | undefined): number[] {
   const order: number[] = []
   const seen = new Set<number>()
@@ -210,6 +231,7 @@ function CookSessionView({
   recipeById,
   ingById,
   pantry,
+  pantryReady,
   goals,
   navigate,
   onStartCooking,
@@ -226,6 +248,7 @@ function CookSessionView({
   recipeById: Map<number, Recipe>
   ingById: Map<number, Ingredient>
   pantry: PantryItem[]
+  pantryReady: boolean
   goals: Goals
   navigate: ReturnType<typeof useNavigate>
   onStartCooking: () => void
@@ -299,27 +322,37 @@ function CookSessionView({
     return scaleNutrition(total, 1 / Math.max(1, d.portions))
   }
 
-  function ensureUsageInitialized(idx: number) {
-    const d = dishes[idx]
-    const r = recipeById.get(d.recipeId)
-    if (!r || d.usage?.length) return
-    const scale = d.portions / r.portions
-    const usage = stageIngredients(r, dishStage(d)).map((line) => {
-      const ing = ingById.get(line.ingredientId)
-      return defaultUsageRow(
-        line.ingredientId,
-        round1(line.amount * scale),
-        pantry,
-        ing ? measureUnitOf(line, ing) : undefined,
-      )
-    })
-    updateDish(idx, { usage })
-  }
-
   useEffect(() => {
-    ensureUsageInitialized(activeIdx)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIdx, dish?.portions, recipe?.id])
+    if (!pantryReady) return
+    setLocalDishes((prev) => {
+      if (!prev) return prev
+      const d = prev[activeIdx]
+      if (!d) return prev
+      const r = recipeById.get(d.recipeId)
+      if (!r || !(r.portions > 0)) return prev
+      const scale = d.portions / r.portions
+      const existing = d.usage ?? []
+      const seen = new Set(existing.map((u) => u.ingredientId))
+      const added: UsageRow[] = []
+      for (const line of stageIngredients(r, dishStage(d))) {
+        if (seen.has(line.ingredientId)) continue
+        seen.add(line.ingredientId)
+        const ing = ingById.get(line.ingredientId)
+        added.push(
+          defaultUsageRow(
+            line.ingredientId,
+            round1(line.amount * scale),
+            pantry,
+            ing ? measureUnitOf(line, ing) : undefined,
+          ),
+        )
+      }
+      if (added.length === 0) return prev
+      const next = [...prev]
+      next[activeIdx] = { ...d, usage: [...existing, ...added] }
+      return next
+    })
+  }, [activeIdx, pantryReady, recipeById, ingById, pantry, setLocalDishes])
 
   async function finishDish(
     idx: number,
@@ -391,6 +424,7 @@ function CookSessionView({
 
     for (const u of d.usage ?? []) {
       if (!u.pantryItemId || u.amountUsed <= 0) continue
+      if (isAlwaysAvailable(ingById.get(u.ingredientId))) continue
       const item = await db.pantryItems.get(u.pantryItemId)
       if (!item) continue
       await db.pantryItems.update(u.pantryItemId, {
@@ -540,7 +574,15 @@ function CookSessionView({
   if (finishNext) {
     return (
       <div>
-        <PageHeader title="Session finished" subtitle={`Cooked on ${session.date}`} />
+        <PageHeader
+          title="Session finished"
+          subtitle={`Cooked on ${session.date}`}
+          actions={
+            <Button variant="secondary" onClick={() => navigate('/')}>
+              Back
+            </Button>
+          }
+        />
         <Sheet open title="What’s next?" onClose={() => navigate('/')}>
           <div className="space-y-3">
             <p className="text-sm text-ink-muted">
@@ -732,8 +774,6 @@ function CookSessionView({
         </div>
       ) : null}
 
-      {youtubeHref ? <YoutubeWatchButton href={youtubeHref} className="mt-3" /> : null}
-
       <div className="my-4 flex gap-2 overflow-x-auto pb-1">
         {dishes.map((d, idx) => {
           const r = recipeById.get(d.recipeId)
@@ -755,6 +795,16 @@ function CookSessionView({
           )
         })}
       </div>
+
+      {recipe.imageDataUrl ? (
+        <img
+          src={assetUrl(recipe.imageDataUrl)}
+          alt=""
+          className="mb-3 h-48 w-full rounded-[var(--radius-card)] object-cover shadow-card sm:h-64"
+        />
+      ) : null}
+      <h2 className="mb-3 break-words text-2xl leading-tight">{recipe.name}</h2>
+      {youtubeHref ? <YoutubeWatchButton href={youtubeHref} className="mb-4" /> : null}
 
       <div className="mb-4 flex items-end gap-3">
         <Field label={isPrepRecipe(recipe) ? 'Batches for this cook' : 'Portions for this cook'}>
@@ -818,7 +868,11 @@ function CookSessionView({
           ) : null}
         </h2>
         {(dish.usage?.length ?? 0) === 0 ? (
-          <p className="text-sm text-ink-muted">No ingredients yet — add what you used.</p>
+          <p className="text-sm text-ink-muted">
+            {stageLines.length === 0 && (recipe.ingredients?.length ?? 0) > 0
+              ? 'The ingredients for this recipe are on another day of the cook.'
+              : 'No ingredients yet — add what you used.'}
+          </p>
         ) : null}
         <ul className="space-y-3">
           {usageIngredientOrder(dish.usage).map((ingredientId) => {
@@ -964,13 +1018,12 @@ function CookSessionView({
                                 candidates.length === 0
                                   ? [{ id: 0, label: 'No stock — add to pantry' }]
                                   : [
-                                      { id: 0, label: 'Select pantry item…' },
-                                      ...candidates.map((c) => ({
-                                        id: c.id!,
-                                        label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit} left${
-                                          c.expiryDate ? ` · exp ${c.expiryDate}` : ''
-                                        }`,
-                                      })),
+                                      {
+                                        id: 0,
+                                        label: "Don't deduct from pantry",
+                                        detail: 'This amount stays in stock.',
+                                      },
+                                      ...candidates.map((c) => pantryLotOption(c, ing)),
                                     ]
                               }
                             />

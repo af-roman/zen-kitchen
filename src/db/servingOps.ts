@@ -1,7 +1,7 @@
 import { db } from './database'
 import { removeSiblingLegsOf } from './sessionChains'
 import type { MealSlot, Recipe, Serving, ServingItem, SessionDishPlan } from '@/domain/types'
-import { isPrepRecipe } from '@/domain/kitchen'
+import { isAlwaysAvailable, isPrepRecipe } from '@/domain/kitchen'
 import { maxStorageDays } from '@/domain/storage'
 import {
   plannedDishAvailable,
@@ -31,6 +31,8 @@ async function deductAdhocPantryUsage(item: ServingItem): Promise<void> {
     if (!u.pantryItemId || u.amountUsed <= 0) continue
     const pantry = await db.pantryItems.get(u.pantryItemId)
     if (!pantry) continue
+    const ing = await db.ingredients.get(pantry.ingredientId)
+    if (isAlwaysAvailable(ing)) continue
     await db.pantryItems.update(u.pantryItemId, {
       amountLeft: Math.max(0, Math.round((pantry.amountLeft - u.amountUsed) * 10) / 10),
       updatedAt: now,

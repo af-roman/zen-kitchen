@@ -1,4 +1,5 @@
 import { addDays, format, parseISO } from 'date-fns'
+import { isTapWaterName } from '@/db/builtInIngredients'
 import type { BatchStorage, Recipe, RecipeKind, StorageEnv } from './types'
 
 export function recipeKindOf(recipe: { recipeKind?: RecipeKind } | null | undefined): RecipeKind {
@@ -59,9 +60,11 @@ export function isOutOfStock(amountLeft: number): boolean {
 
 /** Tap water and similar — never gated on pantry stock. */
 export function isAlwaysAvailable(
-  ing: { alwaysAvailable?: boolean } | null | undefined,
+  ing: { alwaysAvailable?: boolean; name?: string } | null | undefined,
 ): boolean {
-  return Boolean(ing?.alwaysAvailable)
+  if (!ing) return false
+  if (ing.alwaysAvailable) return true
+  return ing.name != null && isTapWaterName(ing.name)
 }
 
 export function recipePortionsAvailable(

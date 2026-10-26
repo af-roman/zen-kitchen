@@ -238,14 +238,14 @@ export function RecipeDetailPage() {
       ) : null}
 
       {r.source ? (
-        <p className="mb-4 text-sm text-ink-muted">
+        <p className="mb-4 break-words text-sm text-ink-muted">
           Source:{' '}
           {/^https?:\/\//i.test(r.source.trim()) ? (
             <a
               href={r.source.trim()}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-ink underline"
+              className="break-all text-ink underline"
             >
               {r.source.trim()}
             </a>

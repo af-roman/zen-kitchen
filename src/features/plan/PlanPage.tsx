@@ -20,11 +20,13 @@ import {
 } from '@/domain/planCalendar'
 import { loadPlannerPrefs } from '@/domain/weekPlanner/prefs'
 import { mealNutritionFromItems, servingItemNeedsFood } from '@/domain/servings'
+import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
+import { SwipeReveal } from '@/shared/SwipeReveal'
 import { assetUrl } from '@/shared/assetUrl'
 import { useGoals } from '@/shared/hooks'
 import { IconCook, IconMeal, IconServe, IconSpark } from '@/shared/icons'
 import { MacroRings } from '@/shared/MacroBar'
-import { Badge, Button, EmptyState, SegmentedControl } from '@/shared/ui'
+import { Badge, Button, EmptyState, PageHeader, SegmentedControl } from '@/shared/ui'
 
 function mealLabel(meal: MealSlot): string {
   return MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal
@@ -173,11 +175,12 @@ export function PlanPage() {
 
   return (
     <div>
-      <header className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Plan</h1>
-          {hasPlannedContent ? (
-            <div className="ml-auto flex gap-2">
+      <PageHeader
+        title="Plan"
+        subtitle={rangeLabel(anchor, range)}
+        actions={
+          hasPlannedContent ? (
+            <>
               <Button
                 variant="secondary"
                 className="gap-1.5"
@@ -190,11 +193,10 @@ export function PlanPage() {
                 <IconServe className="h-4 w-4" />
                 Serve today
               </Button>
-            </div>
-          ) : null}
-        </div>
-        <p className="mt-1.5 text-sm font-medium text-ink-muted">{rangeLabel(anchor, range)}</p>
-      </header>
+            </>
+          ) : null
+        }
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => setAnchor((a) => shiftAnchor(a, range, -1))}>
@@ -254,10 +256,20 @@ export function PlanPage() {
               )
             })}
           </div>
-          <p className="mt-3 text-xs text-ink-muted">
-            Lacquer dot: a cook. Amber: kcal outside ±{tolerancePct}%. Grey: empty from today on.
-            Tap a day to open it.
-          </p>
+          <ul className="mt-3 space-y-1.5 text-xs text-ink-muted">
+            <li className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-lacquer" />
+              A cook
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
+              kcal outside ±{tolerancePct}%
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink/20" />
+              Empty from today on
+            </li>
+          </ul>
         </section>
       ) : null}
 
@@ -279,7 +291,7 @@ export function PlanPage() {
               <MacroRings
                 nutrition={weekAverage}
                 goals={goals}
-                size="md"
+                size="lg"
                 caption="Average filled day vs goals"
               />
             </section>
@@ -356,8 +368,8 @@ export function PlanPage() {
                     const image = coverImage(serving, recipeById)
                     const empty = !serving || serving.items.length === 0
 
-                    return (
-                      <li key={meal}>
+                    const removable = canRemovePlannedMeal(serving, date, today)
+                    const tile = (
                         <button
                           type="button"
                           onClick={() =>
@@ -367,7 +379,9 @@ export function PlanPage() {
                                 : `/plan/${date}`,
                             )
                           }
-                          className="meal-tile flex w-full gap-0 text-left transition hover:scale-[1.01] active:scale-[0.99]"
+                          className={`meal-tile flex w-full gap-0 text-left transition active:scale-[0.99] ${
+                            removable ? '' : 'hover:scale-[1.01]'
+                          }`}
                         >
                           <div className="h-24 w-24 shrink-0 bg-ink/5 sm:h-28 sm:w-28">
                             {image ? (
@@ -400,6 +414,19 @@ export function PlanPage() {
                             </p>
                           </div>
                         </button>
+                    )
+                    return (
+                      <li key={meal}>
+                        {removable ? (
+                          <SwipeReveal
+                            actionLabel={`Remove ${mealLabel(meal)}`}
+                            onAction={() => void confirmRemovePlannedMeal(date, meal)}
+                          >
+                            {tile}
+                          </SwipeReveal>
+                        ) : (
+                          tile
+                        )}
                       </li>
                     )
                   })}

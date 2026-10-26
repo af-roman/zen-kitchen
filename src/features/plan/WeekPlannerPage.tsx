@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { addDays, format, parseISO, startOfWeek } from 'date-fns'
 import { db } from '@/db/database'
 import { acceptWeekDraft } from '@/db/weekPlannerOps'
-import { MEAL_SLOTS, type MealSlot } from '@/domain/types'
+import { MEAL_SLOTS, mealSlotIndex, type MealSlot } from '@/domain/types'
 import { todayISO } from '@/domain/kitchen'
 import {
   MEAL_PATTERN_OPTIONS,
@@ -20,12 +20,27 @@ import {
   type PlannerPrefs,
   type WeekDraft,
 } from '@/domain/weekPlanner'
+import { addNutrition, emptyNutrition, scaleNutrition } from '@/domain/nutrition'
+import type { Nutrition } from '@/domain/types'
 import { useGoals } from '@/shared/hooks'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
 import { IconCheck, IconSpark } from '@/shared/icons'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner } from '@/shared/ui'
 import { MacroRings } from '@/shared/MacroBar'
+
+function plateNutrition(
+  items: { recipeId: number; portions: number }[],
+  byId: Map<number, { nutritionPerPortion: Nutrition }>,
+): Nutrition {
+  let total = emptyNutrition()
+  for (const item of items) {
+    const cand = byId.get(item.recipeId)
+    if (!cand) continue
+    total = addNutrition(total, scaleNutrition(cand.nutritionPerPortion, item.portions))
+  }
+  return total
+}
 
 export function WeekPlannerPage() {
   const navigate = useNavigate()
@@ -60,6 +75,10 @@ export function WeekPlannerPage() {
         seed: Date.now() % 1_000_000,
       }),
     [recipes, ingredients, pantry, goals],
+  )
+  const nutritionByRecipe = useMemo(
+    () => new Map(baseCatalog.candidates.map((c) => [c.recipeId, c])),
+    [baseCatalog],
   )
 
   async function generate(improve: boolean) {
@@ -131,11 +150,11 @@ export function WeekPlannerPage() {
   function toggleMeal(meal: MealSlot) {
     setPrefs((p) => {
       const has = p.meals.includes(meal)
-      if (has && p.meals.length === 1) return p
-      return {
-        ...p,
-        meals: has ? p.meals.filter((m) => m !== meal) : [...p.meals, meal],
-      }
+      const meals = MEAL_SLOTS.map((slot) => slot.id).filter((id) =>
+        id === meal ? !has : p.meals.includes(id),
+      )
+      if (meals.length === 0) return p
+      return { ...p, meals }
     })
   }
 
@@ -195,7 +214,7 @@ export function WeekPlannerPage() {
   }
 
   const prefsSummary = useMemo(() => {
-    const mealBits = prefs.meals.map((m) => {
+    const mealBits = [...prefs.meals].sort((a, b) => mealSlotIndex(a) - mealSlotIndex(b)).map((m) => {
       const label = MEAL_SLOTS.find((x) => x.id === m)?.label ?? m
       const pat = prefs.mealPatterns?.[m]
       const patLabel = MEAL_PATTERN_OPTIONS.find((p) => p.id === pat)?.label ?? pat ?? 'simple'
@@ -208,7 +227,6 @@ export function WeekPlannerPage() {
     <div>
       <PageHeader
         title="Plan my week"
-        icon={<IconSpark className="h-5 w-5" />}
         subtitle={prefsSummary || 'Lunch & dinner · batch cooks'}
         actions={
           <Button variant="secondary" onClick={() => navigate('/week')}>
@@ -293,7 +311,7 @@ export function WeekPlannerPage() {
             </div>
             <div className="space-y-2">
               <p className="text-sm text-ink-muted">Meal patterns</p>
-              {prefs.meals.map((meal) => (
+              {[...prefs.meals].sort((a, b) => mealSlotIndex(a) - mealSlotIndex(b)).map((meal) => (
                 <Field key={meal} label={MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal}>
                   <SelectField<MealPatternId>
                     title="Pattern"
@@ -323,7 +341,7 @@ export function WeekPlannerPage() {
           <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                className="min-w-0 flex-1 gap-2 sm:flex-none sm:min-w-[10rem]"
+                className="w-full shrink-0 gap-2 whitespace-nowrap sm:w-auto sm:min-w-[10rem]"
                 disabled={busy}
                 onClick={() => void accept('fill')}
               >
@@ -332,7 +350,7 @@ export function WeekPlannerPage() {
               </Button>
               <Button
                 variant="secondary"
-                className="gap-1.5"
+                className="shrink-0 gap-1.5 whitespace-nowrap"
                 disabled={busy}
                 onClick={() => void accept('replace')}
               >
@@ -340,15 +358,14 @@ export function WeekPlannerPage() {
               </Button>
               <Button
                 variant="secondary"
-                className="gap-1.5"
+                className="shrink-0 gap-1.5 whitespace-nowrap"
                 disabled={busy}
                 onClick={() => void generate(true)}
               >
                 <IconSpark className="h-4 w-4" />
                 Regenerate
               </Button>
-              <Badge tone="accent">Score {draft.score.total}</Badge>
-              <Button variant="ghost" className="ml-auto" onClick={() => setDraft(null)}>
+              <Button variant="ghost" className="shrink-0 whitespace-nowrap sm:ml-auto" onClick={() => setDraft(null)}>
                 Discard
               </Button>
             </div>
@@ -417,12 +434,25 @@ export function WeekPlannerPage() {
             <div className="space-y-4">
               {days.map((date) => (
                 <div key={date}>
-                  <div className="mb-2 text-sm font-medium">
-                    {format(parseISO(date), 'EEE d MMM')}
-                    {date === todayISO() ? ' · today' : ''}
+                  <div className="mb-2 flex items-center gap-2">
+                    <div className="shrink-0 text-sm font-medium">
+                      {format(parseISO(date), 'EEE d MMM')}
+                      {date === todayISO() ? ' · today' : ''}
+                    </div>
+                    <MacroRings
+                      nutrition={plateNutrition(
+                        draft.servings.filter((s) => s.date === date),
+                        nutritionByRecipe,
+                      )}
+                      goals={goals}
+                      size="xs"
+                      className="min-w-0 flex-1"
+                    />
                   </div>
                   <div className="space-y-2">
-                    {draft.prefs.meals.map((meal) => {
+                    {[...draft.prefs.meals]
+                      .sort((a, b) => mealSlotIndex(a) - mealSlotIndex(b))
+                      .map((meal) => {
                       const items = draft.servings.filter(
                         (s) => s.date === date && s.meal === meal,
                       )
@@ -435,11 +465,19 @@ export function WeekPlannerPage() {
                           key={meal}
                           className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-3"
                         >
-                          <div className="mb-2 flex flex-wrap items-baseline gap-2">
-                            <span className="font-medium">{mealLabel}</span>
-                            {patLabel ? (
-                              <span className="text-xs text-ink-muted">{patLabel}</span>
-                            ) : null}
+                          <div className="mb-2 flex items-center gap-2">
+                            <div className="min-w-0 shrink">
+                              <span className="font-medium">{mealLabel}</span>
+                              {patLabel ? (
+                                <span className="ml-2 text-xs text-ink-muted">{patLabel}</span>
+                              ) : null}
+                            </div>
+                            <MacroRings
+                              nutrition={plateNutrition(items, nutritionByRecipe)}
+                              goals={goals}
+                              size="xs"
+                              className="min-w-0 flex-1"
+                            />
                           </div>
                           {items.length === 0 ? (
                             <p className="text-sm text-ink-muted">Empty</p>
@@ -451,7 +489,7 @@ export function WeekPlannerPage() {
                                 return (
                                   <li
                                     key={key}
-                                    className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 ${
+                                    className={`flex flex-nowrap items-center gap-2 rounded-lg border px-2 py-2 sm:px-3 ${
                                       selected
                                         ? 'border-lacquer/40 bg-lacquer/5'
                                         : 'border-line bg-paper'
@@ -474,6 +512,7 @@ export function WeekPlannerPage() {
                                       </span>
                                     </button>
                                     <NumberField
+                                      compact
                                       value={s.portions}
                                       min={0.5}
                                       max={8}
@@ -523,7 +562,7 @@ export function WeekPlannerPage() {
 
           <div className="panel-action flex flex-col gap-2 p-4 pb-8 sm:flex-row sm:flex-wrap">
             <Button
-              className="w-full gap-2 sm:w-auto sm:min-w-[10rem]"
+              className="w-full shrink-0 gap-2 whitespace-nowrap sm:w-auto sm:min-w-[10rem]"
               disabled={busy}
               onClick={() => void accept('fill')}
             >

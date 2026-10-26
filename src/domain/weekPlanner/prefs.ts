@@ -1,4 +1,4 @@
-import type { MealSlot } from '@/domain/types'
+import { MEAL_SLOTS, type MealSlot } from '@/domain/types'
 import { todayISO } from '@/domain/kitchen'
 import { format, parseISO, startOfWeek } from 'date-fns'
 import { defaultMealPatterns, type MealPatternId } from './patterns'
@@ -53,8 +53,8 @@ export function savePlannerPrefs(prefs: PlannerPrefs): void {
 
 function normalizeMeals(meals: MealSlot[] | undefined): MealSlot[] | undefined {
   if (!meals?.length) return undefined
-  const allowed: MealSlot[] = ['breakfast', 'lunch', 'dinner', 'snack']
-  const next = meals.filter((m) => allowed.includes(m))
+  const allowed = new Set(meals)
+  const next = MEAL_SLOTS.map((slot) => slot.id).filter((id) => allowed.has(id))
   return next.length ? next : undefined
 }
 

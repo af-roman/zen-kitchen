@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
@@ -31,6 +32,7 @@ const emptyForm = {
 }
 
 export function IngredientsPage() {
+  const navigate = useNavigate()
   const ingredients = useLiveQuery(() => db.ingredients.orderBy('name').toArray(), []) ?? []
   const [q, setQ] = useState('')
   const [category, setCategory] = useState<IngredientCategory | 'all'>('all')
@@ -127,7 +129,14 @@ export function IngredientsPage() {
       <PageHeader
         title="Ingredient library"
         subtitle="The building blocks for recipes, pantry, and restocks."
-        actions={<Button onClick={openCreate}>Add</Button>}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/more')}>
+              Back
+            </Button>
+            <Button onClick={openCreate}>Add</Button>
+          </>
+        }
       />
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <input

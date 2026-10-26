@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import type { Goals } from '@/domain/types'
@@ -9,6 +10,7 @@ import { MacroBar } from '@/shared/MacroBar'
 import { emptyNutrition } from '@/domain/nutrition'
 
 export function GoalsPage() {
+  const navigate = useNavigate()
   const goals = useLiveQuery(() => db.goals.get(1))
   const [draft, setDraft] = useState<Goals | null>(null)
   const [saved, setSaved] = useState(false)
@@ -36,6 +38,11 @@ export function GoalsPage() {
       <PageHeader
         title="Kitchen goals"
         subtitle="Daily energy and macro balance — every dish is compared to these."
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/more')}>
+            Back
+          </Button>
+        }
       />
       <div className="space-y-4">
         <Field label="Daily energy (kcal)">

@@ -7,7 +7,7 @@ import { sessionShortfalls } from '@/db/shoppingOps'
 import { consolidateDuplicateMealSlots, healOrphanedServingItems, setServingKept } from '@/db/servingOps'
 import type { MealSlot, Serving } from '@/domain/types'
 import { MEAL_SLOTS } from '@/domain/types'
-import { todayISO } from '@/domain/kitchen'
+import { isAlwaysAvailable, todayISO } from '@/domain/kitchen'
 import { addNutrition, emptyNutrition } from '@/domain/nutrition'
 import { mealNutritionFromItems, servingItemNeedsFood } from '@/domain/servings'
 import { deriveTodayAlerts } from '@/domain/todayAlerts'
@@ -23,8 +23,10 @@ import {
   IconServe,
   IconShop,
 } from '@/shared/icons'
+import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
 import { MacroBar } from '@/shared/MacroBar'
-import { Badge, Button } from '@/shared/ui'
+import { SwipeReveal } from '@/shared/SwipeReveal'
+import { Badge, Button, PageHeader } from '@/shared/ui'
 
 function mealLabel(meal: MealSlot): string {
   return MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal
@@ -114,13 +116,13 @@ export function TodayPage() {
       deriveTodayAlerts({
         today,
         sessions,
-        pantry,
+        pantry: pantry.filter((p) => !isAlwaysAvailable(ingById.get(p.ingredientId))),
         batches,
         servings,
         nextCookShort,
         nextCookDate: nextCook?.date,
       }),
-    [today, sessions, pantry, batches, servings, nextCookShort, nextCook],
+    [today, sessions, pantry, ingById, batches, servings, nextCookShort, nextCook],
   )
 
   const todayNutrition = useMemo(
@@ -157,18 +159,16 @@ export function TodayPage() {
 
   return (
     <div>
-      <header className="mb-6 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-ink-muted">
-            {format(parseISO(today), 'EEEE d MMMM')}
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight sm:text-4xl">Today</h1>
-        </div>
-        <Button variant="secondary" className="gap-1.5" onClick={() => navigate('/more')}>
-          <IconKitchen className="h-4 w-4" />
-          Kitchen
-        </Button>
-      </header>
+      <PageHeader
+        title="Today"
+        subtitle={format(parseISO(today), 'EEEE d MMMM')}
+        actions={
+          <Button variant="secondary" className="gap-1.5" onClick={() => navigate('/more')}>
+            <IconKitchen className="h-4 w-4" />
+            Kitchen
+          </Button>
+        }
+      />
 
       <button
         type="button"
@@ -220,14 +220,16 @@ export function TodayPage() {
           const names = dishNames(serving)
           const image = coverImage(serving)
           const empty = !serving || serving.items.length === 0
-          return (
-            <li key={meal} className="space-y-2">
+          const removable = canRemovePlannedMeal(serving, today)
+          const tile = (
               <button
                 type="button"
                 onClick={() =>
                   navigate(empty || needsFood ? `/serve?date=${today}` : `/plan/${today}`)
                 }
-                className="meal-tile flex w-full gap-0 text-left transition hover:scale-[1.01] active:scale-[0.99]"
+                className={`meal-tile flex w-full gap-0 text-left transition active:scale-[0.99] ${
+                  removable ? '' : 'hover:scale-[1.01]'
+                }`}
               >
                 <div className="h-24 w-24 shrink-0 bg-ink/5 sm:h-28 sm:w-28">
                   {image ? (
@@ -245,7 +247,7 @@ export function TodayPage() {
                       {mealLabel(meal)}
                     </span>
                     {needsFood ? <Badge tone="warn">Needs food</Badge> : null}
-                    {serving?.kept ? <Badge tone="ok">Kept</Badge> : null}
+                    {serving?.kept ? <Badge tone="ok">Consumed</Badge> : null}
                     {empty ? <Badge>Open</Badge> : null}
                   </div>
                   <p
@@ -257,13 +259,26 @@ export function TodayPage() {
                   </p>
                 </div>
               </button>
+          )
+          return (
+            <li key={meal} className="space-y-2">
+              {removable ? (
+                <SwipeReveal
+                  actionLabel={`Remove ${mealLabel(meal)}`}
+                  onAction={() => void confirmRemovePlannedMeal(today, meal)}
+                >
+                  {tile}
+                </SwipeReveal>
+              ) : (
+                tile
+              )}
               {serving?.id != null && !empty ? (
                 <Button
                   variant={serving.kept ? 'secondary' : 'primary'}
                   className="w-full"
                   onClick={() => void setServingKept(serving.id!, !serving.kept)}
                 >
-                  {serving.kept ? 'Kept — counted in the logbook' : 'Mark kept'}
+                  {serving.kept ? 'Consumed — counted in the logbook' : 'Mark consumed'}
                 </Button>
               ) : null}
             </li>

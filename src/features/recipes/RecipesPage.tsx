@@ -17,7 +17,7 @@ import { isPrepRecipe, recipeKindOf, recipePortionsAvailable } from '@/domain/ki
 import { stockTotals } from '@/domain/recipeMath'
 import { assetUrl } from '@/shared/assetUrl'
 import { Checkbox, SelectField } from '@/shared/forms'
-import { IconPlus, IconRecipes } from '@/shared/icons'
+import { IconPlus } from '@/shared/icons'
 import { Badge, Button, EmptyState, PageHeader, SegmentedControl, inputClass } from '@/shared/ui'
 
 type SortKey = 'name' | 'effort' | 'newest'
@@ -78,6 +78,25 @@ export function RecipesPage() {
     sessionStorage.setItem(FILTERS_KEY, JSON.stringify(next))
   }, [q, kind, category, technique, effort, cookableOnly, sort])
 
+  const filtersActive =
+    q.trim() !== '' ||
+    kind !== 'all' ||
+    category !== 'all' ||
+    technique !== 'all' ||
+    effort !== 'all' ||
+    cookableOnly ||
+    sort !== 'name'
+
+  function clearFilters() {
+    setQ('')
+    setKind('all')
+    setCategory('all')
+    setTechnique('all')
+    setEffort('all')
+    setCookableOnly(false)
+    setSort('name')
+  }
+
   const filtered = useMemo(() => {
     let list = [...recipes]
     const qLower = q.trim().toLowerCase()
@@ -107,8 +126,7 @@ export function RecipesPage() {
     <div>
       <PageHeader
         title="Recipes"
-        icon={<IconRecipes className="h-5 w-5" />}
-        subtitle={`${filtered.length} in your box`}
+        subtitle={`${filtered.length} displayed`}
         actions={
           <Button className="gap-1.5" onClick={() => navigate('/recipes/new')}>
             <IconPlus className="h-4 w-4" />
@@ -133,13 +151,24 @@ export function RecipesPage() {
             { id: 'prep', label: 'Prep' },
           ]}
         />
-        <button
-          type="button"
-          className="text-sm font-semibold text-ink-muted"
-          onClick={() => setShowFilters((v) => !v)}
-        >
-          {showFilters ? 'Hide filters' : 'More filters'}
-        </button>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            className="text-sm font-semibold text-ink-muted"
+            onClick={() => setShowFilters((v) => !v)}
+          >
+            {showFilters ? 'Hide filters' : 'More filters'}
+          </button>
+          {filtersActive ? (
+            <button
+              type="button"
+              className="text-sm font-semibold text-lacquer"
+              onClick={clearFilters}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
         {showFilters ? (
           <div className="grid gap-2 sm:grid-cols-2">
             <SelectField
@@ -200,18 +229,8 @@ export function RecipesPage() {
             title="No matches"
             body="Try clearing filters."
             actions={
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setQ('')
-                  setKind('all')
-                  setCategory('all')
-                  setTechnique('all')
-                  setEffort('all')
-                  setCookableOnly(false)
-                }}
-              >
-                Clear filters
+              <Button variant="secondary" onClick={clearFilters}>
+                Clear
               </Button>
             }
           />

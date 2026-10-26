@@ -1,7 +1,7 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { ComponentType, SVGProps } from 'react'
-import { IconBackup, IconGoals, IconIngredients, IconKitchen, IconNotebook } from '@/shared/icons'
-import { PageHeader } from '@/shared/ui'
+import { IconBackup, IconGoals, IconIngredients, IconNotebook } from '@/shared/icons'
+import { Button, PageHeader } from '@/shared/ui'
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -23,12 +23,17 @@ const links: { to: string; label: string; hint: string; icon: Glyph }[] = [
 ]
 
 export function MorePage() {
+  const navigate = useNavigate()
   return (
     <div>
       <PageHeader
         title="Kitchen"
-        icon={<IconKitchen className="h-5 w-5" />}
         subtitle="Settings and library extras."
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/')}>
+            Back
+          </Button>
+        }
       />
       <ul className="card-elevated divide-y divide-line overflow-hidden">
         {links.map((link) => {

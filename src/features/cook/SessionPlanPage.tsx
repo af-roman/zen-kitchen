@@ -242,6 +242,11 @@ export function SessionPlanPage() {
       <PageHeader
         title={editId ? 'Edit cooking session' : 'Plan cooking session'}
         subtitle="Pick a date and the recipes you’ll cook — dishes for meals, prep for the pantry."
+        actions={
+          <Button variant="secondary" onClick={() => navigate(-1)}>
+            Back
+          </Button>
+        }
       />
       <div className="space-y-4">
         {dateLocked ? (

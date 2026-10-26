@@ -244,7 +244,11 @@ async function syncPlanShoppingInner(input: {
   const needed = new Set(lines.map((l) => l.ingredientId))
   const listId = await ensureOpenShoppingList()
   const list = (await db.shoppingLists.get(listId))!
-  let items = list.items.filter((item) => item.source !== 'plan' || needed.has(item.ingredientId))
+  let items = list.items.filter(
+    (item) =>
+      !isAlwaysAvailable(ingredientById.get(item.ingredientId)) &&
+      (item.source !== 'plan' || needed.has(item.ingredientId)),
+  )
 
   for (const line of lines) {
     const note =

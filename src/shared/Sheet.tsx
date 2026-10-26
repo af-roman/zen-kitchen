@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
+import { useBodyScrollLock } from './scrollLock'
 import { Button } from './ui'
 
 export function Sheet({
@@ -15,6 +16,8 @@ export function Sheet({
   children: ReactNode
   wide?: boolean
 }) {
+  useBodyScrollLock(open)
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -27,7 +30,7 @@ export function Sheet({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button
         type="button"
         aria-label="Close"
@@ -35,16 +38,16 @@ export function Sheet({
         onClick={onClose}
       />
       <div
-        className={`relative z-10 max-h-[92dvh] w-full overflow-y-auto rounded-t-[1.75rem] bg-paper-elevated p-5 shadow-card sm:rounded-[1.75rem] ${
-          wide ? 'sm:max-w-3xl' : 'sm:max-w-lg'
+        className={`relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated p-5 shadow-card ${
+          wide ? 'max-w-3xl' : 'max-w-lg'
         }`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className="text-xl font-semibold text-ink">{title}</h2>
-          <Button variant="ghost" onClick={onClose}>
+          <h2 className="min-w-0 flex-1 break-words text-xl font-semibold text-ink">{title}</h2>
+          <Button variant="ghost" className="shrink-0" onClick={onClose}>
             Close
           </Button>
         </div>

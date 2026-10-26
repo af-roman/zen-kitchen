@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RecipeStep } from '@/domain/types'
 import { assetUrl } from '@/shared/assetUrl'
+import { useBodyScrollLock } from '@/shared/scrollLock'
 import { Button } from '@/shared/ui'
 
 export type StepGalleryItem = {
@@ -69,10 +70,10 @@ export function StepImageGallery({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, startId])
 
+  useBodyScrollLock(open)
+
   useEffect(() => {
     if (!open) return
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1))
@@ -80,7 +81,6 @@ export function StepImageGallery({
     }
     window.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = prevOverflow
       window.removeEventListener('keydown', onKey)
     }
   }, [open, onClose, items.length])

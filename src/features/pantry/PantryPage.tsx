@@ -9,7 +9,7 @@ import {
   type Nutrition,
   type PantryItem,
 } from '@/domain/types'
-import { isLowStock, isOutOfStock } from '@/domain/kitchen'
+import { isAlwaysAvailable, isLowStock, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
 import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
 import { ImageUploadField } from '@/shared/ImageUploadField'
@@ -72,7 +72,7 @@ export function PantryPage() {
   const shortCount = useMemo(() => {
     return items.filter((item) => {
       const ing = byId.get(item.ingredientId)
-      if (!ing) return false
+      if (!ing || isAlwaysAvailable(ing)) return false
       return isOutOfStock(item.amountLeft) || isLowStock(item.amountLeft, ing.lowStockThreshold)
     }).length
   }, [items, byId])
@@ -82,7 +82,14 @@ export function PantryPage() {
       <PageHeader
         title="Pantry"
         subtitle="What you have on the shelf — brands, amounts, and expiry."
-        actions={<Button onClick={startCreate}>Add item</Button>}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/ready')}>
+              Back
+            </Button>
+            <Button onClick={startCreate}>Add item</Button>
+          </>
+        }
       />
       {shortCount > 0 ? (
         <div className="mb-4">
@@ -147,8 +154,9 @@ export function PantryPage() {
         <ul className="divide-y divide-line border-y border-line">
           {filtered.map(({ item, ing }) => {
             if (!ing) return null
-            const low = isLowStock(item.amountLeft, ing.lowStockThreshold)
-            const out = isOutOfStock(item.amountLeft)
+            const always = isAlwaysAvailable(ing)
+            const low = !always && isLowStock(item.amountLeft, ing.lowStockThreshold)
+            const out = !always && isOutOfStock(item.amountLeft)
             return (
               <li key={item.id}>
                 <button
@@ -169,8 +177,8 @@ export function PantryPage() {
                     <div className="font-medium">{ing.name}</div>
                     <div className="text-sm text-ink-muted">{item.brand || 'No brand'}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <Badge tone={out ? 'warn' : low ? 'warn' : 'ok'}>
-                        {item.amountLeft} {ing.unit} left
+                      <Badge tone={always ? 'ok' : out ? 'warn' : low ? 'warn' : 'ok'}>
+                        {always ? 'Always available' : `${item.amountLeft} ${ing.unit} left`}
                       </Badge>
                       {item.expiryDate ? (
                         <Badge tone={formatExpiryLabel(item.expiryDate).includes('expired') ? 'warn' : 'neutral'}>
@@ -298,7 +306,9 @@ function PantryItemSheet({
                 if (suggested) setExpiryDate(suggested)
               }
             }}
-            options={ingredients.map((i) => ({ id: i.id!, label: i.name }))}
+            options={ingredients
+              .filter((i) => editing?.ingredientId === i.id || !isAlwaysAvailable(i))
+              .map((i) => ({ id: i.id!, label: i.name }))}
           />
         </Field>
         <ImageUploadField value={imageDataUrl} onChange={setImageDataUrl} />

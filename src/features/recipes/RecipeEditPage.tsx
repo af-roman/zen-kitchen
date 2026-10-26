@@ -354,6 +354,11 @@ export function RecipeEditPage() {
             ? 'Name, ingredients, and steps — add details later if you need them.'
             : undefined
         }
+        actions={
+          <Button variant="secondary" onClick={() => navigate(-1)}>
+            Back
+          </Button>
+        }
       />
       <div className="space-y-4">
         {isNew ? (
@@ -552,13 +557,13 @@ export function RecipeEditPage() {
                           : 'Tap to search'}
                       </span>
                     </button>
-                    <div className="flex shrink-0 items-stretch gap-2">
-                      <div className="w-36">
-                        <NumberField
-                          value={displayAmount}
-                          min={0}
-                          step={0.1}
-                          onChange={(measureAmount) => {
+                    <div className="flex w-full min-w-0 items-stretch gap-2 sm:w-80 sm:shrink-0">
+                      <NumberField
+                        className="min-w-0 flex-1"
+                        value={displayAmount}
+                        min={0}
+                        step={0.1}
+                        onChange={(measureAmount) => {
                             if (!ing) return
                             const next = [...lines]
                             try {
@@ -572,9 +577,8 @@ export function RecipeEditPage() {
                               /* ignore while typing invalid spoon without density */
                             }
                           }}
-                        />
-                      </div>
-                      <div className="w-24">
+                      />
+                      <div className="w-24 shrink-0">
                         <SelectField
                           title="Unit"
                           compact

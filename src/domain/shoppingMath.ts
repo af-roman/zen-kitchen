@@ -11,27 +11,16 @@ export function roundUpToPack(need: number, packSize?: number): number {
 
 /**
  * How much to buy for a planned cook (or week of cooks).
- *
- * Covers the cook deficit (need − have). If a low-stock threshold is set and
- * stock after the cook would fall below it, also buys enough to land at that
- * threshold (then pack-rounded).
+ * Covers the cook deficit (need − have), then rounds up to a whole pack.
  */
 export function buyAmountForShortfall(input: {
   need: number
   have: number
-  lowStockThreshold?: number
   packSize?: number
 }): number {
   const need = Math.max(0, input.need)
   const have = Math.max(0, input.have)
-  const threshold =
-    input.lowStockThreshold != null && input.lowStockThreshold > 0
-      ? input.lowStockThreshold
-      : 0
   const cookDeficit = Math.max(0, need - have)
-  // After purchase and cook: have + buy - need >= threshold (when threshold > 0)
-  const refillBuy = Math.max(0, need + threshold - have)
-  const buyRaw = Math.max(cookDeficit, refillBuy)
-  if (buyRaw <= 0.05) return 0
-  return roundUpToPack(buyRaw, input.packSize)
+  if (cookDeficit <= 0.05) return 0
+  return roundUpToPack(cookDeficit, input.packSize)
 }

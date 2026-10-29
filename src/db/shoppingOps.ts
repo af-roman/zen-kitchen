@@ -33,8 +33,7 @@ export type ShortfallLine = {
 }
 
 /**
- * Ingredient shortfalls for a session: cover cook need, and refill to
- * lowStockThreshold when set (pack-rounded).
+ * Ingredient shortfalls for a session: cover the cook deficit (pack-rounded).
  */
 export function sessionShortfalls(
   session: CookingSession,
@@ -64,7 +63,6 @@ export function sessionShortfalls(
     const buy = buyAmountForShortfall({
       need,
       have,
-      lowStockThreshold: ing?.lowStockThreshold,
       packSize: ing?.packSize,
     })
     if (buy <= 0) continue
@@ -176,7 +174,6 @@ export function horizonShortfalls(
     const buy = buyAmountForShortfall({
       need,
       have,
-      lowStockThreshold: ing?.lowStockThreshold,
       packSize: ing?.packSize,
     })
     if (buy <= 0) continue

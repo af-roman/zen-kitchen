@@ -103,6 +103,11 @@ export function mealSlotIndex(meal: MealSlot): number {
   return index < 0 ? MEAL_SLOTS.length : index
 }
 
+export function parseMealSlot(value: string | null | undefined): MealSlot | null {
+  if (!value) return null
+  return MEAL_SLOTS.some((slot) => slot.id === value) ? (value as MealSlot) : null
+}
+
 /** Where a cooked dish batch is stored. */
 export type BatchStorage = 'fridge' | 'freezer'
 
@@ -150,8 +155,7 @@ export interface Ingredient {
    */
   rawFridgeDays?: number
   /**
-   * Always on hand (e.g. tap water) — never requires pantry stock,
-   * never deducted, and never listed as low stock.
+   * Always on hand (e.g. tap water) — never requires pantry stock and never deducted.
    */
   alwaysAvailable?: boolean
   createdAt: string

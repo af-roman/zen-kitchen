@@ -7,7 +7,6 @@ import { dishCategoryLabel, recipeCategory } from '@/domain/dishTaxonomy'
 import {
   isAlwaysAvailable,
   isDishRecipe,
-  isLowStock,
   isPrepRecipe,
   quantityNoun,
   todayISO,
@@ -174,12 +173,8 @@ export function SessionPlanPage() {
       const onHand = stock.get(ingredientId) ?? 0
       const reservedAmt = reserved.get(ingredientId) ?? 0
       const have = always ? amount : Math.max(0, onHand - reservedAmt)
-      const low = always
-        ? false
-        : ing
-          ? isLowStock(have, ing.lowStockThreshold) || have < amount
-          : true
-      return { ingredientId, amount, have, onHand, reservedAmt, ing, low, always }
+      const short = !always && have + 0.05 < amount
+      return { ingredientId, amount, have, onHand, reservedAmt, ing, short, always }
     })
   }, [dishes, recipeById, ingById, stock, reserved])
 
@@ -412,7 +407,7 @@ export function SessionPlanPage() {
                   <span>{n.ing?.name}</span>
                   <span className="flex flex-wrap items-center justify-end gap-2">
                     {Math.round(n.amount * 10) / 10} {n.ing?.unit}
-                    <Badge tone={n.low ? 'warn' : 'ok'}>
+                    <Badge tone={n.short ? 'warn' : 'ok'}>
                       {n.always ? 'always available' : `avail ${Math.round(n.have * 10) / 10}`}
                     </Badge>
                     {!n.always && n.reservedAmt > 0 ? (
@@ -426,9 +421,9 @@ export function SessionPlanPage() {
               ))}
             </ul>
           )}
-          {needs.some((n) => n.low) ? (
+          {needs.some((n) => n.short) ? (
             <div className="mt-3 space-y-2">
-              <WarnBanner>Some items are low or short for this session.</WarnBanner>
+              <WarnBanner>Some items are short for this session.</WarnBanner>
               <Button
                 className="w-full"
                 variant="secondary"

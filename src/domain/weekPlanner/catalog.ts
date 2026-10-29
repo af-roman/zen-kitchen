@@ -61,7 +61,6 @@ export function buildPlannerCatalog(input: {
         {
           packSize: i.packSize,
           alwaysAvailable: i.alwaysAvailable,
-          lowStockThreshold: i.lowStockThreshold,
           rawFridgeDays: i.rawFridgeDays,
           name: i.name,
           unit: i.unit,

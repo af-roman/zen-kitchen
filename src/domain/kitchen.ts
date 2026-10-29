@@ -50,12 +50,30 @@ export function storageLabel(env: BatchStorage | StorageEnv): string {
   return 'Room temperature'
 }
 
-export function isLowStock(amountLeft: number, threshold: number): boolean {
-  return amountLeft > 0 && amountLeft <= threshold
-}
-
 export function isOutOfStock(amountLeft: number): boolean {
   return amountLeft <= 0
+}
+
+/** Nutrition was never filled in (every value is still 0). Tap water is intentionally zero. */
+export function hasUnsetNutrition(
+  ing:
+    | {
+        nutritionPer100?: {
+          energyKcal: number
+          fatG: number
+          carbsG: number
+          proteinG: number
+        }
+        alwaysAvailable?: boolean
+        name?: string
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!ing || isAlwaysAvailable(ing)) return false
+  const n = ing.nutritionPer100
+  if (!n) return true
+  return n.energyKcal === 0 && n.fatG === 0 && n.carbsG === 0 && n.proteinG === 0
 }
 
 /** Tap water and similar — never gated on pantry stock. */

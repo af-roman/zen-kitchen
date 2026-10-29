@@ -14,8 +14,8 @@ export function PageHeader({
   icon?: ReactNode
 }) {
   return (
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-x-3 gap-y-3">
-      <div className="min-w-0 flex-1">
+    <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
         <div className="flex items-center gap-3">
           {icon ? (
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-lacquer/10 text-lacquer">
@@ -31,7 +31,7 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
           {actions}
         </div>
       ) : null}

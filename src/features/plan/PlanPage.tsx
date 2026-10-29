@@ -375,7 +375,7 @@ export function PlanPage() {
                           onClick={() =>
                             navigate(
                               empty || needsFood
-                                ? `/serve?date=${date}`
+                                ? `/serve?date=${date}&meal=${meal}`
                                 : `/plan/${date}`,
                             )
                           }

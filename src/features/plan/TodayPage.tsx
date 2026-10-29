@@ -7,7 +7,7 @@ import { sessionShortfalls } from '@/db/shoppingOps'
 import { consolidateDuplicateMealSlots, healOrphanedServingItems, setServingKept } from '@/db/servingOps'
 import type { MealSlot, Serving } from '@/domain/types'
 import { MEAL_SLOTS } from '@/domain/types'
-import { isAlwaysAvailable, todayISO } from '@/domain/kitchen'
+import { hasUnsetNutrition, isAlwaysAvailable, todayISO } from '@/domain/kitchen'
 import { addNutrition, emptyNutrition } from '@/domain/nutrition'
 import { mealNutritionFromItems, servingItemNeedsFood } from '@/domain/servings'
 import { deriveTodayAlerts } from '@/domain/todayAlerts'
@@ -125,6 +125,11 @@ export function TodayPage() {
     [today, sessions, pantry, ingById, batches, servings, nextCookShort, nextCook],
   )
 
+  const missingNutritionCount = useMemo(
+    () => ingredients.filter(hasUnsetNutrition).length,
+    [ingredients],
+  )
+
   const todayNutrition = useMemo(
     () =>
       servings
@@ -190,7 +195,7 @@ export function TodayPage() {
         </span>
       </button>
 
-      {alerts.length > 0 ? (
+      {alerts.length > 0 || missingNutritionCount > 0 ? (
         <ul className="mb-6 space-y-2">
           {alerts.map((alert) => (
             <li key={alert.id}>
@@ -204,6 +209,24 @@ export function TodayPage() {
               </button>
             </li>
           ))}
+          {missingNutritionCount > 0 ? (
+            <li>
+              <button
+                type="button"
+                onClick={() => navigate('/ingredients?nutrition=missing')}
+                className="w-full rounded-2xl bg-warn/10 px-4 py-3 text-left"
+              >
+                <p className="text-sm font-semibold text-warn">
+                  {missingNutritionCount === 1
+                    ? '1 ingredient has no nutrition'
+                    : `${missingNutritionCount} ingredients have no nutrition`}
+                </p>
+                <p className="mt-0.5 text-sm text-ink-muted">
+                  Energy and macros are still 0, so meals that use them undercount.
+                </p>
+              </button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
 
@@ -225,7 +248,11 @@ export function TodayPage() {
               <button
                 type="button"
                 onClick={() =>
-                  navigate(empty || needsFood ? `/serve?date=${today}` : `/plan/${today}`)
+                  navigate(
+                    empty || needsFood
+                      ? `/serve?date=${today}&meal=${meal}`
+                      : `/plan/${today}`,
+                  )
                 }
                 className={`meal-tile flex w-full gap-0 text-left transition active:scale-[0.99] ${
                   removable ? '' : 'hover:scale-[1.01]'

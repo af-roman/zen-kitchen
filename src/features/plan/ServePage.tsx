@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
   MEAL_SLOTS,
+  parseMealSlot,
   type Ingredient,
   type MealSlot,
   type Nutrition,
@@ -70,6 +71,10 @@ function initialServeDate(params: URLSearchParams, today: string): string {
   return today
 }
 
+function initialServeMeal(params: URLSearchParams): MealSlot {
+  return parseMealSlot(params.get('meal')) ?? 'lunch'
+}
+
 export function ServePage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
@@ -87,7 +92,7 @@ export function ServePage() {
   const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
 
   const [date, setDate] = useState(() => initialServeDate(params, today))
-  const [meal, setMeal] = useState<MealSlot>('lunch')
+  const [meal, setMeal] = useState<MealSlot>(() => initialServeMeal(params))
   const [picks, setPicks] = useState<ServePick[]>([])
   const [adhocOpen, setAdhocOpen] = useState(false)
   const [editingAdhocKey, setEditingAdhocKey] = useState<string | null>(null)
@@ -95,6 +100,8 @@ export function ServePage() {
   useEffect(() => {
     const fromUrl = params.get('date')
     if (fromUrl && !isPastDate(fromUrl)) setDate(fromUrl)
+    const fromMeal = parseMealSlot(params.get('meal'))
+    if (fromMeal) setMeal(fromMeal)
   }, [params])
 
   useEffect(() => {

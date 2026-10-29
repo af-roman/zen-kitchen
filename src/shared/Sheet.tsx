@@ -10,12 +10,15 @@ export function Sheet({
   onClose,
   children,
   wide,
+  zClass,
 }: {
   open: boolean
   title: string
   onClose: () => void
   children: ReactNode
   wide?: boolean
+  /** Stack above another open sheet. */
+  zClass?: string
 }) {
   useBodyScrollLock(open)
 
@@ -31,7 +34,7 @@ export function Sheet({
   if (!open) return null
 
   return (
-    <ModalOverlay onDismiss={onClose}>
+    <ModalOverlay zClass={zClass} onDismiss={onClose}>
       <div
         data-scroll-lock-allow
         className={`pointer-events-auto relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated shadow-card ${

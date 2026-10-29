@@ -176,9 +176,9 @@ function BatchRow({
       <button
         type="button"
         onClick={onAdjust}
-        className="meal-tile flex w-full gap-0 text-left transition hover:scale-[1.01]"
+        className="meal-tile flex w-full flex-col gap-0 text-left transition hover:scale-[1.01]"
       >
-        <div className="h-20 w-20 shrink-0 overflow-hidden bg-ink/5 sm:h-24 sm:w-24">
+        <div className="aspect-[2/1] w-full overflow-hidden bg-ink/5">
           {recipe?.imageDataUrl ? (
             <img
               src={assetUrl(recipe.imageDataUrl)}
@@ -191,7 +191,7 @@ function BatchRow({
             </div>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col justify-center px-4 py-3">
+        <div className="flex min-w-0 flex-col justify-center px-4 py-3">
           <div className="flex flex-wrap gap-1.5">
             <Badge>{dishCategoryLabel(recipe?.category)}</Badge>
             <Badge tone={expired ? 'warn' : 'neutral'}>{expiryLabel}</Badge>

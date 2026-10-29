@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { IconTrash } from '@/shared/icons'
 
-const ACTION_PX = 88
+const ACTION_PX = 56
 
 /**
  * Slides a row left to reveal a trailing action.
@@ -153,10 +154,12 @@ export function SwipeReveal({
       <button
         type="button"
         data-reveal-action
-        className="absolute inset-y-0 right-0 z-0 w-[5.5rem] bg-danger text-sm font-semibold text-white"
+        aria-label={actionLabel}
+        title={actionLabel}
+        className="absolute top-1/2 right-2 z-0 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-danger"
         onClick={onAction}
       >
-        Remove
+        <IconTrash className="h-5 w-5" />
       </button>
     </div>
   )

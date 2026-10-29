@@ -4,8 +4,7 @@ import type { PlannerCatalog, WeekDraftSession, WeekDraftShopLine } from './type
 
 /**
  * Aggregate ingredient needs for draft cook sessions (scaled by portions / base).
- * Buys enough for the cooks and, when lowStockThreshold is set, to land at that
- * threshold after cooking (pack-rounded).
+ * Buys enough for the cooks (pack-rounded). The shop list does not refill past that.
  */
 export function draftShoppingLines(
   sessions: WeekDraftSession[],
@@ -38,7 +37,6 @@ export function draftShoppingLines(
     const buy = buyAmountForShortfall({
       need,
       have,
-      lowStockThreshold: meta?.lowStockThreshold,
       packSize: meta?.packSize,
     })
     if (buy <= 0) continue

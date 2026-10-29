@@ -87,13 +87,18 @@ export function CloudSyncPanel() {
                 setCodeError(null)
                 const result = await sync.signInWithMagicLink(email)
                 setBusy(false)
-                if (!result.ok) {
+                if (result.ok) {
+                  await appAlert(
+                    `Check ${email.trim()} for the sign-in email. On iPhone the link opens in Safari. This app signs in after you open it, or enter the code below.`,
+                    { title: 'Sign-in email sent' },
+                  )
+                } else {
                   await appAlert(result.message, { title: 'Sign-in failed' })
                 }
               })()
             }}
           >
-            Send sign-in email
+            {busy ? 'Sending…' : 'Send sign-in email'}
           </Button>
           {sync.signInEmail ? (
             <div className="space-y-3">

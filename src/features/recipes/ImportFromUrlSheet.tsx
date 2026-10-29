@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { db } from '@/db/database'
 import {
   INGREDIENT_CATEGORIES,
   type Ingredient,
@@ -19,6 +18,7 @@ import {
   rememberImportSynonym,
 } from '@/domain/recipeImport/synonyms'
 import { uid } from '@/domain/kitchen'
+import { IngredientEditorSheet } from '@/features/ingredients/IngredientEditorSheet'
 import { mealRolesFromCategory } from '@/domain/mealRoles'
 import { canUseMeasureUnit, toStockAmount } from '@/domain/measures'
 import { DEFAULT_SUBRECIPE } from '@/domain/recipeMath'
@@ -87,6 +87,7 @@ export function ImportFromUrlSheet({
   } | null>(null)
   const [draftLines, setDraftLines] = useState<DraftLine[] | null>(null)
   const [mapLineIndex, setMapLineIndex] = useState<number | null>(null)
+  const [stubLineIndex, setStubLineIndex] = useState<number | null>(null)
   /** Local stubs created during this import (id → ingredient), merged with live catalog for picks. */
   const [localStubs, setLocalStubs] = useState<Ingredient[]>([])
 
@@ -170,36 +171,6 @@ export function ImportFromUrlSheet({
     } finally {
       setBusy(false)
     }
-  }
-
-  async function createStub(index: number) {
-    if (!draftLines) return
-    const line = draftLines[index]
-    if (!line) return
-    const now = new Date().toISOString()
-    const unit: Unit = line.stockUnit
-    const id = await db.ingredients.add({
-      name: line.name,
-      category: 'staples',
-      unit,
-      nutritionPer100: { energyKcal: 0, fatG: 0, carbsG: 0, proteinG: 0 },
-      lowStockThreshold: 0,
-      createdAt: now,
-    })
-    const stub: Ingredient = {
-      id,
-      name: line.name,
-      category: 'staples',
-      unit,
-      nutritionPer100: { energyKcal: 0, fatG: 0, carbsG: 0, proteinG: 0 },
-      lowStockThreshold: 0,
-      createdAt: now,
-    }
-    setLocalStubs((prev) => [...prev, stub])
-    setDraftLines((rows) =>
-      rows?.map((r, i) => (i === index ? { ...r, ingredientId: id } : r)) ?? null,
-    )
-    setSynonyms((map) => rememberImportSynonym(map, line.name, stub.name))
   }
 
   function applyToForm() {
@@ -450,7 +421,7 @@ export function ImportFromUrlSheet({
                       <Button
                         variant="secondary"
                         className="min-w-0 flex-1"
-                        onClick={() => void createStub(index)}
+                        onClick={() => setStubLineIndex(index)}
                       >
                         Create stub
                       </Button>
@@ -509,6 +480,30 @@ export function ImportFromUrlSheet({
             (rows) => rows?.map((r, i) => (i === index ? { ...r, ingredientId } : r)) ?? null,
           )
           setMapLineIndex(null)
+        }}
+      />
+      <IngredientEditorSheet
+        open={stubLineIndex != null}
+        seed={
+          stubLineIndex != null && draftLines?.[stubLineIndex]
+            ? {
+                name: draftLines[stubLineIndex].name,
+                unit: draftLines[stubLineIndex].stockUnit,
+              }
+            : null
+        }
+        zClass="z-[55]"
+        onClose={() => setStubLineIndex(null)}
+        onSaved={(ing) => {
+          const index = stubLineIndex
+          if (index == null) return
+          setLocalStubs((prev) => [...prev, ing])
+          setDraftLines(
+            (rows) => rows?.map((r, i) => (i === index ? { ...r, ingredientId: ing.id } : r)) ?? null,
+          )
+          const line = draftLines?.[index]
+          if (line) setSynonyms((map) => rememberImportSynonym(map, line.name, ing.name))
+          setStubLineIndex(null)
         }}
       />
     </Sheet>

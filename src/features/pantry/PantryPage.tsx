@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
@@ -9,7 +9,7 @@ import {
   type Nutrition,
   type PantryItem,
 } from '@/domain/types'
-import { isAlwaysAvailable, isLowStock, isOutOfStock } from '@/domain/kitchen'
+import { isAlwaysAvailable, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
 import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
 import { ImageUploadField } from '@/shared/ImageUploadField'
@@ -19,7 +19,7 @@ import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
-type StockFilter = 'all' | 'in' | 'low' | 'out'
+type StockFilter = 'all' | 'in' | 'out'
 type SortKey = 'name' | 'amount' | 'expiry'
 
 export function PantryPage() {
@@ -42,10 +42,8 @@ export function PantryPage() {
       if (category !== 'all' && ing.category !== category) return false
       const hay = `${ing.name} ${item.brand}`.toLowerCase()
       if (q && !hay.includes(q.toLowerCase())) return false
-      const low = isLowStock(item.amountLeft, ing.lowStockThreshold)
       const out = isOutOfStock(item.amountLeft)
       if (stock === 'in' && out) return false
-      if (stock === 'low' && !low) return false
       if (stock === 'out' && !out) return false
       return true
     })
@@ -69,14 +67,6 @@ export function PantryPage() {
     setOpen(true)
   }
 
-  const shortCount = useMemo(() => {
-    return items.filter((item) => {
-      const ing = byId.get(item.ingredientId)
-      if (!ing || isAlwaysAvailable(ing)) return false
-      return isOutOfStock(item.amountLeft) || isLowStock(item.amountLeft, ing.lowStockThreshold)
-    }).length
-  }, [items, byId])
-
   return (
     <div>
       <PageHeader
@@ -91,16 +81,6 @@ export function PantryPage() {
           </>
         }
       />
-      {shortCount > 0 ? (
-        <div className="mb-4">
-          <WarnBanner>
-            {shortCount} item{shortCount === 1 ? '' : 's'} low or out ·{' '}
-            <Link to="/shopping" className="font-medium underline">
-              Open shopping list
-            </Link>
-          </WarnBanner>
-        </div>
-      ) : null}
       <div className="mb-4 grid gap-2 sm:grid-cols-2">
         <input
           className={inputClass}
@@ -124,7 +104,6 @@ export function PantryPage() {
           options={[
             { id: 'all', label: 'Any stock' },
             { id: 'in', label: 'In stock' },
-            { id: 'low', label: 'Low stock' },
             { id: 'out', label: 'Out of stock' },
           ]}
         />
@@ -155,7 +134,6 @@ export function PantryPage() {
           {filtered.map(({ item, ing }) => {
             if (!ing) return null
             const always = isAlwaysAvailable(ing)
-            const low = !always && isLowStock(item.amountLeft, ing.lowStockThreshold)
             const out = !always && isOutOfStock(item.amountLeft)
             return (
               <li key={item.id}>
@@ -177,7 +155,7 @@ export function PantryPage() {
                     <div className="font-medium">{ing.name}</div>
                     <div className="text-sm text-ink-muted">{item.brand || 'No brand'}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <Badge tone={always ? 'ok' : out ? 'warn' : low ? 'warn' : 'ok'}>
+                      <Badge tone={always ? 'ok' : out ? 'warn' : 'ok'}>
                         {always ? 'Always available' : `${item.amountLeft} ${ing.unit} left`}
                       </Badge>
                       {item.expiryDate ? (
@@ -187,7 +165,7 @@ export function PantryPage() {
                       ) : (
                         <Badge>No expiry date</Badge>
                       )}
-                      {low || out ? <Badge tone="warn">{out ? 'Out of stock' : 'Running low'}</Badge> : null}
+                      {out ? <Badge tone="warn">Out of stock</Badge> : null}
                     </div>
                   </div>
                 </button>

@@ -80,38 +80,6 @@ export function DayDetailPage() {
     [servings, recipeById, ingById],
   )
 
-  const dishRows = useMemo(() => {
-    const rows: {
-      key: string
-      mealLabel: string
-      label: string
-      portions: number
-      nutrition: ReturnType<typeof emptyNutrition>
-      adhoc: boolean
-      broken: boolean
-    }[] = []
-    for (const slot of MEAL_SLOTS) {
-      const serving = servings.find((s) => s.meal === slot.id)
-      if (!serving) continue
-      for (const [idx, item] of serving.items.entries()) {
-        rows.push({
-          key: `${slot.id}-${idx}`,
-          mealLabel: slot.label,
-          label: servingItemLabel(item, recipeById),
-          portions: item.portions,
-          nutrition: scaleNutrition(
-            resolveServingNutrition(item, recipeById, ingById),
-            item.portions,
-          ),
-          adhoc: isAdhocServingItem(item),
-          broken: itemBroken(item),
-        })
-      }
-    }
-    return rows
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [servings, recipeById, ingById, sessionById, batchIds])
-
   const needsFoodCount = servings.filter((s) => s.items.some(itemBroken)).length
 
   async function confirmDeleteSession(mode: 'keep-meals' | 'remove-meals') {
@@ -285,7 +253,7 @@ export function DayDetailPage() {
 
       <section className="mb-5">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-lg">Eat</h2>
+          <h2 className="text-lg">Meals</h2>
         </div>
         <div className="space-y-2">
           {MEAL_SLOTS.map((slot) => {
@@ -365,39 +333,6 @@ export function DayDetailPage() {
           })}
         </div>
       </section>
-
-      {dishRows.length > 0 ? (
-        <section className="mb-5 card-elevated p-4">
-          <h2 className="mb-1 text-lg">Dish breakdown</h2>
-          <p className="mb-4 text-xs text-ink-muted">
-            Each dish on this day — meal totals are under Eat above.
-          </p>
-          <ul className="space-y-2">
-            {dishRows.map((row) => (
-              <li
-                key={row.key}
-                className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-line px-3 py-2"
-              >
-                <span className="text-sm">
-                  <span className="text-ink-muted">{row.mealLabel} · </span>
-                  {row.label} ×{row.portions}
-                  {row.adhoc ? (
-                    <span className="ml-1.5 align-middle">
-                      <Badge>Other</Badge>
-                    </span>
-                  ) : null}
-                  {row.broken ? (
-                    <span className="ml-1.5 align-middle">
-                      <Badge tone="warn">Needs food</Badge>
-                    </span>
-                  ) : null}
-                </span>
-                <MacroInline nutrition={row.nutrition} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       {sessions.length === 0 && servings.length === 0 ? (
         <EmptyState

@@ -1,6 +1,7 @@
 /**
  * Personal helper: fetch a recipe page HTML for JSON-LD extraction in the PWA.
- * Deploy: supabase functions deploy recipe-fetch
+ * Deploy: supabase functions deploy recipe-fetch --no-verify-jwt
+ * The app signs requests with the publishable key, which is not a user JWT.
  *
  * Body: { "url": "https://…" }
  * Returns: { html, finalUrl, status }

@@ -10,6 +10,22 @@ import {
 import type { User } from '@supabase/supabase-js'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import {
+  claimHandoff,
+  clearClaim,
+  clearPendingRedirect,
+  exchangePastedCode,
+  isIos,
+  isStandaloneApp,
+  pastePayload,
+  publishPending,
+  readClaim,
+  readPendingRedirect,
+  redirectToWithHandoff,
+  verifyEmailOtp,
+  writeClaim,
+  type AuthBridge,
+} from '@/sync/authHandoff'
+import {
   forcePullCloud,
   forcePushLocal,
   runCloudSync,
@@ -36,6 +52,10 @@ type SyncContextValue = {
   lastError: string | null
   syncNow: () => Promise<void>
   signInWithMagicLink: (email: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  signInEmail: string | null
+  verifySignInCode: (code: string) => Promise<{ ok: true } | { ok: false; message: string }>
+  authBridge: AuthBridge | null
+  dismissAuthBridge: () => void
   signOut: () => Promise<void>
 }
 
@@ -62,6 +82,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [status, setStatus] = useState<SyncStatus>(configured ? 'signed_out' : 'disabled')
   const [lastError, setLastError] = useState<string | null>(null)
+  const [signInEmail, setSignInEmail] = useState<string | null>(() => readClaim()?.email ?? null)
+  const [authBridge, setAuthBridge] = useState<AuthBridge | null>(null)
   const [metaTick, setMetaTick] = useState(0)
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const syncingRef = useRef(false)
@@ -137,11 +159,51 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (!supabase) return
 
     let cancelled = false
+    const pending = readPendingRedirect()
+    const claim = readClaim()
+    void (async () => {
+      if (!pending || cancelled) return
+      const sameBrowser = Boolean(claim && claim.id === pending.id && 'code' in pending)
+      if (sameBrowser && 'code' in pending) {
+        clearPendingRedirect()
+        const { error } = await supabase.auth.exchangeCodeForSession(
+          pending.code,
+          pending.flowId ? { flowId: pending.flowId } : undefined,
+        )
+        if (cancelled) return
+        if (error) setLastError(error.message)
+        else {
+          clearClaim()
+          setSignInEmail(null)
+          if (isIos() && !isStandaloneApp()) setAuthBridge({ kind: 'open-from-app' })
+        }
+        return
+      }
+      const result = await publishPending(supabase, pending)
+      if (cancelled) return
+      if (result === 'published') {
+        clearPendingRedirect()
+        setAuthBridge({ kind: 'published' })
+        return
+      }
+      if ('code' in pending) {
+        setAuthBridge({
+          kind: 'paste',
+          code: pastePayload(pending),
+          needsSetup: result === 'missing',
+        })
+      }
+    })()
+
     void supabase.auth.getSession().then(({ data }) => {
       if (cancelled) return
       setUser(data.session?.user ?? null)
       setStatus(data.session ? 'idle' : 'signed_out')
-      if (data.session) void syncNow()
+      if (data.session) {
+        clearClaim()
+        setSignInEmail(null)
+        void syncNow()
+      }
     })
 
     const {
@@ -149,7 +211,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       setStatus(session ? 'idle' : 'signed_out')
-      if (session) void syncNow()
+      if (session) {
+        clearClaim()
+        setSignInEmail(null)
+        void syncNow()
+      }
     })
 
     const onVis = () => {
@@ -173,15 +239,77 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const signInWithMagicLink = useCallback(async (email: string) => {
     const supabase = getSupabase()
     if (!supabase) return { ok: false as const, message: 'Cloud sync is not configured' }
-    const base = import.meta.env.BASE_URL || '/'
-    const redirectTo = `${window.location.origin}${base.endsWith('/') ? base : `${base}/`}`
+    const trimmed = email.trim()
+    const id = crypto.randomUUID()
+    writeClaim({ id, email: trimmed, at: Date.now() })
+    setSignInEmail(trimmed)
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: redirectTo },
+      email: trimmed,
+      options: { emailRedirectTo: redirectToWithHandoff(id) },
     })
-    if (error) return { ok: false as const, message: error.message }
+    if (error) {
+      clearClaim()
+      setSignInEmail(null)
+      return { ok: false as const, message: error.message }
+    }
     return { ok: true as const }
   }, [])
+
+  const verifySignInCode = useCallback(async (code: string) => {
+    const supabase = getSupabase()
+    if (!supabase) return { ok: false as const, message: 'Cloud sync is not configured' }
+    const trimmed = code.trim()
+    const email = readClaim()?.email ?? signInEmail ?? ''
+    const result = /^\d{6,10}$/.test(trimmed)
+      ? await verifyEmailOtp(supabase, email, trimmed)
+      : await exchangePastedCode(supabase, trimmed)
+    if (result.ok) {
+      clearClaim()
+      clearPendingRedirect()
+      setSignInEmail(null)
+      setAuthBridge(null)
+    }
+    return result
+  }, [signInEmail])
+
+  const dismissAuthBridge = useCallback(() => {
+    setAuthBridge(null)
+    clearPendingRedirect()
+  }, [])
+
+  useEffect(() => {
+    if (!configured || user) return
+    if (!readClaim()) return
+    let stopped = false
+    const tick = async () => {
+      if (stopped) return
+      const claim = readClaim()
+      const supabase = getSupabase()
+      if (!claim || !supabase) return
+      const result = await claimHandoff(supabase, claim.id)
+      if (stopped) return
+      if (result.status === 'session') {
+        clearClaim()
+        setSignInEmail(null)
+        setAuthBridge(null)
+      } else if (result.status === 'error') {
+        clearClaim()
+        setSignInEmail(null)
+        setLastError(result.message)
+      }
+    }
+    void tick()
+    const timer = window.setInterval(() => void tick(), 2000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void tick()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [configured, user])
 
   const signOut = useCallback(async () => {
     const supabase = getSupabase()
@@ -200,6 +328,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     lastError,
     syncNow,
     signInWithMagicLink,
+    signInEmail,
+    verifySignInCode,
+    authBridge,
+    dismissAuthBridge,
     signOut,
   }
 

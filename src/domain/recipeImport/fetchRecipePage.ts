@@ -3,7 +3,7 @@ import { getSupabase, isCloudSyncConfigured } from '@/sync/supabaseClient'
 export type FetchedRecipePage = {
   html: string
   finalUrl: string
-  via: 'dev-proxy' | 'supabase' | 'paste'
+  via: 'dev-proxy' | 'supabase' | 'reader' | 'paste'
 }
 
 async function tryDevProxy(url: string): Promise<FetchedRecipePage | null> {
@@ -20,7 +20,10 @@ async function tryDevProxy(url: string): Promise<FetchedRecipePage | null> {
       error?: string
     }
     if (!data.html) {
-      if (data.error) throw new Error(data.error)
+      // Upstream blocks or the proxy is down. Try the next fetch path.
+      if (data.error && /Missing url|Invalid url|Only http/i.test(data.error)) {
+        throw new Error(data.error)
+      }
       return null
     }
     return {
@@ -35,6 +38,29 @@ async function tryDevProxy(url: string): Promise<FetchedRecipePage | null> {
   }
 }
 
+async function functionErrorDetail(error: { message?: string; context?: unknown }): Promise<string> {
+  let detail = error.message ?? ''
+  const ctx = error.context
+  if (
+    ctx &&
+    typeof ctx === 'object' &&
+    'clone' in ctx &&
+    typeof (ctx as Response).clone === 'function'
+  ) {
+    try {
+      const body = (await (ctx as Response).clone().json()) as {
+        message?: string
+        code?: string
+        error?: string
+      }
+      detail = `${detail} ${body.message ?? ''} ${body.code ?? ''} ${body.error ?? ''}`
+    } catch {
+      // Body was not JSON.
+    }
+  }
+  return detail
+}
+
 async function trySupabaseFunction(url: string): Promise<FetchedRecipePage | null> {
   if (!isCloudSyncConfigured()) return null
   const sb = getSupabase()
@@ -43,10 +69,10 @@ async function trySupabaseFunction(url: string): Promise<FetchedRecipePage | nul
     body: { url },
   })
   if (error) {
-    // Function not deployed / not found — treat as unavailable.
-    const msg = error.message || String(error)
-    if (/not found|404|FunctionsRelayError|Failed to send/i.test(msg)) return null
-    throw new Error(msg)
+    const detail = await functionErrorDetail(error)
+    if (/Invalid url|Missing url|Only http/i.test(detail)) throw new Error(detail.trim())
+    // Not deployed, or the publishable key was rejected. Try the reader proxy.
+    return null
   }
   const payload = data as { html?: string; finalUrl?: string; error?: string } | null
   if (!payload?.html) {
@@ -57,6 +83,26 @@ async function trySupabaseFunction(url: string): Promise<FetchedRecipePage | nul
     html: payload.html,
     finalUrl: payload.finalUrl || url,
     via: 'supabase',
+  }
+}
+
+/** Public reader that returns the page HTML with CORS headers. Used when recipe-fetch is not deployed. */
+async function tryReaderProxy(url: string): Promise<FetchedRecipePage | null> {
+  try {
+    const res = await fetch(`https://r.jina.ai/${url}`, {
+      headers: {
+        Accept: 'text/html',
+        'X-Return-Format': 'html',
+      },
+      referrerPolicy: 'no-referrer',
+      credentials: 'omit',
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+    if (!html.includes('<')) return null
+    return { html, finalUrl: url, via: 'reader' }
+  } catch {
+    return null
   }
 }
 
@@ -83,7 +129,8 @@ export async function fetchRecipePageHtml(url: string): Promise<FetchedRecipePag
   const viaSb = await trySupabaseFunction(trimmed)
   if (viaSb) return viaSb
 
-  throw new Error(
-    'Cannot fetch that URL from this device (CORS / no proxy). Paste the page HTML below, or run the app with npm run dev (local proxy), or deploy the recipe-fetch Supabase function.',
-  )
+  const viaReader = await tryReaderProxy(trimmed)
+  if (viaReader) return viaReader
+
+  throw new Error('Could not fetch that page. Paste the page HTML below.')
 }

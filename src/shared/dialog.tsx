@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { ModalOverlay } from '@/shared/modalOverlay'
 import { useBodyScrollLock } from '@/shared/scrollLock'
 import { Button, inputClass } from '@/shared/ui'
 
@@ -211,15 +212,10 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     <DialogContext.Provider value={api}>
       {children}
       {current ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Dismiss"
-            className="absolute inset-0 bg-ink/30 backdrop-blur-[2px]"
-            onClick={() => dismiss(false)}
-          />
+        <ModalOverlay zClass="z-[60]" onDismiss={() => dismiss(false)}>
           <div
-            className="relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full max-w-md overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated p-5 shadow-card"
+            data-scroll-lock-allow
+            className="pointer-events-auto relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full max-w-md overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated p-5 shadow-card"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="app-dialog-title"
@@ -256,20 +252,20 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               {current.kind === 'alert' ? (
-                <Button className="w-full sm:w-auto" onClick={() => dismiss(true)}>
+                <Button className="min-h-11 w-full sm:w-auto" onClick={() => dismiss(true)}>
                   {current.okLabel}
                 </Button>
               ) : (
                 <>
                   <Button
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     variant="ghost"
                     onClick={() => dismiss(false)}
                   >
                     {current.cancelLabel}
                   </Button>
                   <Button
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     variant={current.kind === 'confirm' && current.danger ? 'danger' : 'primary'}
                     onClick={() =>
                       current.kind === 'prompt' ? submitPrompt() : dismiss(true)
@@ -281,7 +277,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
               )}
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       ) : null}
     </DialogContext.Provider>
   )

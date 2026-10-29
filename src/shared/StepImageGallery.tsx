@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { RecipeStep } from '@/domain/types'
 import { assetUrl } from '@/shared/assetUrl'
 import { useBodyScrollLock } from '@/shared/scrollLock'
@@ -91,9 +92,10 @@ export function StepImageGallery({
   const canPrev = index > 0
   const canNext = index < items.length - 1
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex flex-col bg-ink/95 text-paper-elevated"
+      data-scroll-lock-allow
+      className="fixed inset-0 z-[80] flex flex-col bg-ink/95 text-paper-elevated touch-manipulation"
       role="dialog"
       aria-modal="true"
       aria-label="Step photo gallery"
@@ -170,6 +172,7 @@ export function StepImageGallery({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

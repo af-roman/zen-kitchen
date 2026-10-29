@@ -1,4 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { captureAuthRedirect } from '@/sync/authHandoff'
+
+captureAuthRedirect()
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const publishableKey =

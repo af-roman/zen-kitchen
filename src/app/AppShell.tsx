@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useCloudSync } from '@/sync/SyncProvider'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import {
@@ -56,6 +58,64 @@ const nav: {
   },
 ]
 
+function AuthBridgeBanner() {
+  const sync = useCloudSync()
+  const bridge = sync.authBridge
+  const [copied, setCopied] = useState(false)
+  if (!bridge) return null
+
+  const copy = () => {
+    if (bridge.kind !== 'paste') return
+    void navigator.clipboard.writeText(bridge.code).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    )
+  }
+
+  return (
+    <div className="mb-4 rounded-[1.25rem] bg-ink px-4 py-3 text-sm text-white">
+      {bridge.kind === 'published' ? (
+        <p>
+          Sign-in is waiting in the home screen app. Switch to the Zen Kitchen icon and it will
+          sync.
+        </p>
+      ) : null}
+      {bridge.kind === 'open-from-app' ? (
+        <p>
+          This browser is signed in. The home screen app keeps its own sign-in. Send the email
+          from that app, then open the link.
+        </p>
+      ) : null}
+      {bridge.kind === 'paste' ? (
+        <div className="space-y-2">
+          <p>Paste this code into the home screen app, under More → Backup & sync.</p>
+          <p className="break-all font-mono text-xs text-white/90">{bridge.code}</p>
+          {bridge.needsSetup ? (
+            <p className="text-white/75">
+              To skip the paste next time, run the auth handoff section of supabase/schema.sql in
+              the Supabase SQL editor.
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={copy}
+            className="rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold"
+          >
+            {copied ? 'Copied' : 'Copy code'}
+          </button>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        onClick={sync.dismissAuthBridge}
+        className="mt-2 text-xs font-semibold text-white/70"
+      >
+        Dismiss
+      </button>
+    </div>
+  )
+}
+
 export function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -84,6 +144,7 @@ export function AppShell() {
             </span>
           </button>
         ) : null}
+        <AuthBridgeBanner />
         <div className="page-enter">
           <Outlet />
         </div>

@@ -105,8 +105,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
       if (result.status === 'conflict') {
         const useCloud = await appConfirm(
-          `This device and the cloud both changed the kitchen.\n\nCloud updated: ${new Date(result.cloud.updated_at).toLocaleString()}${result.cloud.device_id ? ` (device ${result.cloud.device_id.slice(0, 8)}…)` : ''}\nLocal changes since: ${result.dirtyAt ? new Date(result.dirtyAt).toLocaleString() : 'recently'}\n\nUse cloud copy? (Cancel keeps this device and uploads it.)`,
-          { title: 'Sync conflict', confirmLabel: 'Use cloud', cancelLabel: 'Keep this device' },
+          `This device and the cloud both changed the kitchen.\n\nCloud updated: ${new Date(result.cloud.updated_at).toLocaleString()}${result.cloud.device_id ? ` (device ${result.cloud.device_id.slice(0, 8)}…)` : ''}\nThis device changed: ${result.dirtyAt ? new Date(result.dirtyAt).toLocaleString() : 'recently'}\n\nDownload cloud replaces this kitchen with the cloud copy. Upload this device keeps what is here and replaces the cloud.`,
+          {
+            title: 'Sync conflict',
+            confirmLabel: 'Download cloud',
+            cancelLabel: 'Upload this device',
+          },
         )
         if (useCloud) {
           setStatus('syncing')

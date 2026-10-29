@@ -9,6 +9,7 @@ import {
   type MealSlot,
   type Nutrition,
   type PantryItem,
+  type Recipe,
   type ServingItem,
 } from '@/domain/types'
 import {
@@ -42,7 +43,13 @@ import {
   validateServePicks,
 } from '@/db/servingOps'
 import { useGoals } from '@/shared/hooks'
-import { MacroBar, MacroInline, MacroRings } from '@/shared/MacroBar'
+import { MacroRings } from '@/shared/MacroBar'
+import {
+  MealShareLegend,
+  MealStack,
+  dishColorClass,
+  type MealSegment,
+} from '@/shared/MealShare'
 import { Sheet } from '@/shared/Sheet'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { DateField, NumberField, SelectField } from '@/shared/forms'
@@ -50,6 +57,56 @@ import { assetUrl } from '@/shared/assetUrl'
 import { Badge, Button, Field, PageHeader, RemoveButton, WarnBanner, inputClass } from '@/shared/ui'
 
 type AdhocUsageLine = NonNullable<ServingItem['usage']>[number]
+
+function segmentsForItems(
+  items: ServingItem[],
+  recipeById: Map<number, Recipe>,
+  ingById: Map<number, Ingredient>,
+): MealSegment[] {
+  return items.map((item, index) => ({
+    key: `${index}-${servingItemLabel(item, recipeById)}`,
+    label: `${servingItemLabel(item, recipeById)} × ${item.portions}`,
+    kcal: scaleNutrition(resolveServingNutrition(item, recipeById, ingById), item.portions)
+      .energyKcal,
+    colorClass: dishColorClass(index),
+  }))
+}
+
+function MealCardShare({
+  items,
+  recipeById,
+  ingById,
+  broken,
+}: {
+  items: ServingItem[]
+  recipeById: Map<number, Recipe>
+  ingById: Map<number, Ingredient>
+  broken?: (item: ServingItem) => boolean
+}) {
+  if (items.length === 0) return null
+  const segments = segmentsForItems(items, recipeById, ingById)
+  return (
+    <div className="mt-2">
+      <MealStack segments={segments} />
+      <MealShareLegend
+        segments={segments}
+        note={(index) => {
+          const item = items[index]
+          if (!item) return null
+          const needsFood = broken?.(item) ?? false
+          const other = isAdhocServingItem(item)
+          if (!needsFood && !other) return null
+          return (
+            <span className="inline-flex items-center gap-1">
+              {other ? <Badge>Other</Badge> : null}
+              {needsFood ? <Badge tone="warn">Needs food</Badge> : null}
+            </span>
+          )
+        }}
+      />
+    </div>
+  )
+}
 
 function RecipeThumb({ src }: { src?: string }) {
   return (
@@ -123,7 +180,6 @@ export function ServePage() {
     [batches],
   )
   const itemBroken = (item: ServingItem) => servingItemNeedsFood(item, sessionById, batchIds)
-  const missingMeals = MEAL_SLOTS.filter((m) => !dayServings.some((s) => s.meal === m.id))
   const dayHasBroken = dayServings.some((s) => s.items.some(itemBroken))
 
   const readyAvailable = useMemo(() => {
@@ -209,22 +265,6 @@ export function ServePage() {
     () => mealNutritionFromItems(previewItems, recipeById, ingById),
     [previewItems, recipeById, ingById],
   )
-
-  /** Dishes in the meal being edited (scaled to chosen portions). */
-  const dishNutritionRows = useMemo(() => {
-    return picks.map((pick, idx) => {
-      const item = previewItems[idx]
-      if (!item) return null
-      const perPortion = resolveServingNutrition(item, recipeById, ingById)
-      return {
-        key: servePickKey(pick),
-        label: servingItemLabel(item, recipeById),
-        portions: item.portions,
-        nutrition: scaleNutrition(perPortion, item.portions),
-        adhoc: isAdhocServingItem(item),
-      }
-    }).filter((row): row is NonNullable<typeof row> => row != null)
-  }, [picks, previewItems, recipeById, ingById])
 
   /**
    * Day total while editing: other saved meals + this meal’s current picks
@@ -379,32 +419,12 @@ export function ServePage() {
           on <span className="font-medium text-ink">{date}</span>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Day">
-            <DateField title="Day" value={date} min={today} onChange={setDate} />
-          </Field>
-          <Field label="Meal to edit">
-            <SelectField
-              title="Meal to edit"
-              value={meal}
-              onChange={setMeal}
-              options={MEAL_SLOTS.map((m) => {
-                const taken = dayServings.some((s) => s.meal === m.id)
-                return {
-                  id: m.id,
-                  label: m.label,
-                  detail: taken ? 'Planned' : 'Missing',
-                }
-              })}
-            />
-          </Field>
-        </div>
+        <Field label="Day">
+          <DateField title="Day" value={date} min={today} onChange={setDate} />
+        </Field>
 
         <section className="border-b border-line pb-4">
-          <h2 className="mb-1 text-lg">This day</h2>
-          <p className="mb-3 text-xs text-ink-muted">
-            What’s already planned, and which meals still need dishes.
-          </p>
+          <h2 className="mb-3 text-lg">This day</h2>
           {dayHasBroken ? (
             <div className="mb-3">
               <WarnBanner>
@@ -412,65 +432,18 @@ export function ServePage() {
               </WarnBanner>
             </div>
           ) : null}
+          <div className="mb-4">
+            <h3 className="mb-2 text-sm font-medium text-ink">Full day</h3>
+            <MacroRings nutrition={dayNutritionPreview} goals={goals} size="sm" />
+          </div>
           <ul className="space-y-2">
             {MEAL_SLOTS.map((slot) => {
               const serving = dayServings.find((s) => s.meal === slot.id)
               const selected = meal === slot.id
-              if (!serving) {
-                const showingPreview = selected && picks.length > 0
-                return (
-                  <li key={slot.id}>
-                    <button
-                      type="button"
-                      onClick={() => setMeal(slot.id)}
-                      className={`flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition ${
-                        selected
-                          ? 'border-lacquer/40 bg-lacquer/5'
-                          : 'border-dashed border-line hover:border-ink/30'
-                      }`}
-                    >
-                      <div className="flex w-full items-center justify-between gap-2">
-                        <span className="font-medium">{slot.label}</span>
-                        <Badge tone={showingPreview ? 'ok' : 'warn'}>
-                          {showingPreview ? 'Editing' : 'Missing'}
-                        </Badge>
-                      </div>
-                      {showingPreview ? (
-                        <>
-                          <ul className="mt-1 w-full space-y-1 text-ink-muted">
-                            {previewItems.map((item, idx) => {
-                              const dishN = scaleNutrition(
-                                resolveServingNutrition(item, recipeById, ingById),
-                                item.portions,
-                              )
-                              return (
-                                <li key={idx} className="space-y-0.5">
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span>
-                                      {servingItemLabel(item, recipeById)} ×{item.portions}
-                                    </span>
-                                    {isAdhocServingItem(item) ? <Badge>Other</Badge> : null}
-                                  </div>
-                                  <MacroInline nutrition={dishN} />
-                                </li>
-                              )
-                            })}
-                          </ul>
-                          <div className="mt-1.5 w-full border-t border-line/60 pt-1.5">
-                            <span className="text-xs font-medium text-ink">Meal · </span>
-                            <MacroInline nutrition={mealNutrition} goals={goals} />
-                          </div>
-                        </>
-                      ) : null}
-                    </button>
-                  </li>
-                )
-              }
-              const broken = serving.items.some(itemBroken)
-              const mealN = mealNutritionFromItems(serving.items, recipeById, ingById)
               const showingPreview = selected && picks.length > 0
-              const displayItems = showingPreview ? previewItems : serving.items
-              const displayMealN = showingPreview ? mealNutrition : mealN
+              const displayItems = showingPreview ? previewItems : (serving?.items ?? [])
+              const filled = displayItems.length > 0
+              const broken = serving?.items.some(itemBroken) ?? false
               return (
                 <li key={slot.id}>
                   <button
@@ -478,61 +451,37 @@ export function ServePage() {
                     onClick={() => setMeal(slot.id)}
                     className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
                       selected
-                        ? 'border-lacquer/40 bg-lacquer/5'
-                        : broken
-                          ? 'border-warn bg-warn/10 hover:border-warn'
-                          : 'border-line hover:border-ink/30'
+                        ? filled
+                          ? 'border-lacquer/40 bg-lacquer/5'
+                          : 'border-dashed border-lacquer/50 bg-lacquer/5'
+                        : !filled
+                          ? 'border-dashed border-warn/70 bg-warn/10 hover:border-warn'
+                          : broken
+                            ? 'border-warn bg-warn/10 hover:border-warn'
+                            : 'border-line hover:border-ink/30'
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-medium">{slot.label}</span>
-                      <Badge tone={broken ? 'warn' : 'ok'}>
-                        {broken ? 'Needs food' : showingPreview ? 'Editing' : 'Planned'}
-                      </Badge>
+                      {!filled ? (
+                        <Badge tone="warn">Missing</Badge>
+                      ) : showingPreview ? (
+                        <Badge tone="ok">Editing</Badge>
+                      ) : broken ? (
+                        <Badge tone="warn">Needs food</Badge>
+                      ) : null}
                     </div>
-                    <ul className="mt-1 space-y-1 text-ink-muted">
-                      {displayItems.map((item, idx) => {
-                        const dishN = scaleNutrition(
-                          resolveServingNutrition(item, recipeById, ingById),
-                          item.portions,
-                        )
-                        return (
-                          <li key={idx} className="space-y-0.5">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <span>
-                                {servingItemLabel(item, recipeById)} ×{item.portions}
-                              </span>
-                              {isAdhocServingItem(item) ? <Badge>Other</Badge> : null}
-                              {!showingPreview && itemBroken(item) ? (
-                                <Badge tone="warn">needs food</Badge>
-                              ) : null}
-                            </div>
-                            <MacroInline nutrition={dishN} />
-                          </li>
-                        )
-                      })}
-                    </ul>
-                    <div className="mt-1.5 border-t border-line/60 pt-1.5">
-                      <span className="text-xs font-medium text-ink">Meal · </span>
-                      <MacroInline nutrition={displayMealN} goals={goals} />
-                    </div>
+                    <MealCardShare
+                      items={displayItems}
+                      recipeById={recipeById}
+                      ingById={ingById}
+                      broken={showingPreview ? undefined : itemBroken}
+                    />
                   </button>
                 </li>
               )
             })}
           </ul>
-          {missingMeals.length > 0 ? (
-            <p className="mt-3 text-xs text-ink-muted">
-              Missing: {missingMeals.map((m) => m.label).join(', ')}. Select a meal above, then
-              add dishes.
-            </p>
-          ) : (
-            <p className="mt-3 text-xs text-ink-muted">All meal slots have dishes for this day.</p>
-          )}
-          <div className="mt-3 rounded-lg border border-line bg-ink/[0.03] px-3 py-2">
-            <span className="text-xs font-medium text-ink">Day total · </span>
-            <MacroInline nutrition={dayNutritionPreview} goals={goals} />
-          </div>
         </section>
 
         <section>
@@ -542,36 +491,19 @@ export function ServePage() {
           ) : (
             <ul className="space-y-2">
               {readyAvailable.map((b) => {
-                const pick: ServePick = { kind: 'batch', batchId: b.id!, portions: 0 }
-                const portions = getPickPortions({ ...pick, batchId: b.id! })
-                const perPortion = resolveServingNutrition(
-                  { batchId: b.id, recipeId: b.recipeId, portions: 1, nutrition: b.nutritionPerPortion },
-                  recipeById,
-                  ingById,
-                )
+                const portions = getPickPortions({ kind: 'batch', batchId: b.id!, portions: 0 })
                 return (
                   <li key={b.id} className="rounded-lg border border-line p-3">
                     <div className="flex gap-3">
                     <RecipeThumb src={recipeById.get(b.recipeId)?.imageDataUrl} />
-                    <div className="min-w-0 flex-1">
-                    <div className="font-medium">{recipeById.get(b.recipeId)?.name}</div>
-                    <div className="text-xs text-ink-muted">
-                      Cooked {b.cookedAt} · until {b.expiresAt} · {b.portionsLeft} left
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <div>
+                      <div className="font-medium leading-snug">{recipeById.get(b.recipeId)?.name}</div>
+                      <p className="mt-0.5 text-xs leading-snug text-ink-muted">
+                        Cooked {b.cookedAt} · until {b.expiresAt} · {b.portionsLeft} left
+                      </p>
                     </div>
-                    <div className="mt-1">
-                      <MacroInline nutrition={perPortion} />
-                      <span className="text-xs text-ink-muted"> / portion</span>
-                    </div>
-                    {portions > 0 ? (
-                      <div className="mt-1">
-                        <span className="text-xs font-medium text-ink">This pick · </span>
-                        <MacroInline
-                          nutrition={scaleNutrition(perPortion, portions)}
-                          goals={goals}
-                        />
-                      </div>
-                    ) : null}
-                    <Field label="Portions to serve">
+                    <Field label="Portions to serve" className="space-y-1">
                       <NumberField
                         value={portions}
                         min={0}
@@ -598,9 +530,6 @@ export function ServePage() {
 
         <section>
           <h2 className="mb-2 text-lg">Planned from sessions</h2>
-          <p className="mb-2 text-xs text-ink-muted">
-            Dishes from upcoming cooking sessions — available from the session date until they expire.
-          </p>
           {plannedAvailable.length === 0 ? (
             <p className="text-sm text-ink-muted">No planned dishes available for this day.</p>
           ) : (
@@ -613,33 +542,18 @@ export function ServePage() {
                   portions: 0,
                 })
                 const recipe = recipeById.get(p.recipeId)
-                const perPortion = recipe ? recipeNutrition(recipe, ingById) : emptyNutrition()
                 return (
                   <li key={`${p.sessionId}-${p.recipeId}`} className="rounded-lg border border-line bg-ink/[0.03] p-3">
                     <div className="flex gap-3">
                     <RecipeThumb src={recipe?.imageDataUrl} />
-                    <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{recipe?.name}</span>
-                      <Badge tone="accent">Session {p.sessionDate}</Badge>
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <div>
+                      <div className="font-medium leading-snug">{recipe?.name}</div>
+                      <p className="mt-0.5 text-xs leading-snug text-ink-muted">
+                        Session {p.sessionDate} · {p.portionsLeft} left · until {p.expiresAt}
+                      </p>
                     </div>
-                    <div className="text-xs text-ink-muted">
-                      {p.portionsLeft} portions left · until {p.expiresAt}
-                    </div>
-                    <div className="mt-1">
-                      <MacroInline nutrition={perPortion} />
-                      <span className="text-xs text-ink-muted"> / portion</span>
-                    </div>
-                    {portions > 0 ? (
-                      <div className="mt-1">
-                        <span className="text-xs font-medium text-ink">This pick · </span>
-                        <MacroInline
-                          nutrition={scaleNutrition(perPortion, portions)}
-                          goals={goals}
-                        />
-                      </div>
-                    ) : null}
-                    <Field label="Portions to serve">
+                    <Field label="Portions to serve" className="space-y-1">
                       <NumberField
                         value={portions}
                         min={0}
@@ -678,10 +592,6 @@ export function ServePage() {
               Add
             </Button>
           </div>
-          <p className="mb-2 text-xs text-ink-muted">
-            Eat out or cook something off-plan — track macros without a recipe. Optionally deduct
-            pantry if it came from stock.
-          </p>
           {adhocPicks.length === 0 ? (
             <p className="text-sm text-ink-muted">No other food on this meal yet.</p>
           ) : (
@@ -689,31 +599,20 @@ export function ServePage() {
               {adhocPicks.map((pick) => (
                 <li
                   key={pick.key}
-                  className="rounded-lg border border-line bg-paper-elevated p-3"
+                  className="flex flex-col gap-2 rounded-lg border border-line bg-paper-elevated p-3"
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{pick.name}</span>
-                    <Badge>Other</Badge>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium leading-snug">{pick.name}</span>
+                      <Badge>Other</Badge>
+                    </div>
                     {pick.usage?.length ? (
-                      <span className="text-xs text-ink-muted">
+                      <p className="mt-0.5 text-xs leading-snug text-ink-muted">
                         {pick.usage.length} pantry item{pick.usage.length === 1 ? '' : 's'}
-                      </span>
+                      </p>
                     ) : null}
                   </div>
-                  <div className="mt-1">
-                    <MacroInline nutrition={pick.nutrition} />
-                    <span className="text-xs text-ink-muted"> / portion</span>
-                  </div>
-                  {pick.portions > 0 ? (
-                    <div className="mt-1">
-                      <span className="text-xs font-medium text-ink">This pick · </span>
-                      <MacroInline
-                        nutrition={scaleNutrition(pick.nutrition, pick.portions)}
-                        goals={goals}
-                      />
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <div className="flex flex-wrap items-end gap-2">
                     <div className="w-36">
                       <Field label="Portions">
                         <NumberField
@@ -749,96 +648,6 @@ export function ServePage() {
               ))}
             </ul>
           )}
-        </section>
-
-        <section className="card-elevated p-4">
-          <h2 className="mb-1 text-lg">Nutrition</h2>
-          <p className="mb-4 text-xs text-ink-muted">
-            Dishes in this meal, the meal total, and the whole day — so you can balance as you
-            pick.
-          </p>
-
-          <div className="space-y-4">
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-ink">
-                Dishes · {MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal}
-              </h3>
-              {dishNutritionRows.length === 0 ? (
-                <p className="text-sm text-ink-muted">
-                  Choose portions above to see each dish’s macros.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {dishNutritionRows.map((row) => (
-                    <li
-                      key={row.key}
-                      className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-line px-3 py-2"
-                    >
-                      <span className="text-sm">
-                        {row.label} ×{row.portions}
-                        {row.adhoc ? (
-                          <span className="ml-1.5 align-middle">
-                            <Badge>Other</Badge>
-                          </span>
-                        ) : null}
-                      </span>
-                      <MacroInline nutrition={row.nutrition} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="border-t border-line pt-4">
-              <h3 className="mb-2 text-sm font-medium text-ink">This meal</h3>
-              <MacroRings
-                nutrition={mealNutrition}
-                goals={goals}
-                size="sm"
-                caption="This meal vs your daily targets"
-              />
-            </div>
-
-            <div className="border-t border-line pt-4">
-              <h3 className="mb-2 text-sm font-medium text-ink">Whole day · {date}</h3>
-              <ul className="mb-3 space-y-1.5">
-                {MEAL_SLOTS.map((slot) => {
-                  const isEditing = slot.id === meal && picks.length > 0
-                  const serving = dayServings.find((s) => s.meal === slot.id)
-                  const slotN =
-                    isEditing
-                      ? mealNutrition
-                      : serving
-                        ? mealNutritionFromItems(serving.items, recipeById, ingById)
-                        : emptyNutrition()
-                  const empty = !isEditing && !serving
-                  return (
-                    <li
-                      key={slot.id}
-                      className="flex flex-wrap items-baseline justify-between gap-2 text-sm"
-                    >
-                      <span className="text-ink-muted">
-                        {slot.label}
-                        {isEditing ? (
-                          <span className="ml-1 text-ink">· editing</span>
-                        ) : null}
-                      </span>
-                      {empty ? (
-                        <span className="text-xs text-ink-muted">—</span>
-                      ) : (
-                        <MacroInline nutrition={slotN} goals={goals} />
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-              <MacroBar
-                nutrition={dayNutritionPreview}
-                goals={goals}
-                goalCaption="Full day vs your daily targets (includes this meal as edited)"
-              />
-            </div>
-          </div>
         </section>
 
         <Button className="w-full" onClick={() => void save()} disabled={isPastDate(date)}>

@@ -16,6 +16,7 @@ import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appConfirm } from '@/shared/dialog'
 import { assetUrl } from '@/shared/assetUrl'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
+import { SwipeReveal } from '@/shared/SwipeReveal'
 import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -65,6 +66,13 @@ export function PantryPage() {
   function startEdit(item: PantryItem) {
     setEditing(item)
     setOpen(true)
+  }
+
+  async function removePantryItem(id: number) {
+    if (!(await appConfirm('Remove this pantry item?', { danger: true, confirmLabel: 'Remove' }))) return
+    await db.pantryItems.delete(id)
+    setEditing((current) => (current?.id === id ? null : current))
+    setOpen((isOpen) => (editing?.id === id ? false : isOpen))
   }
 
   return (
@@ -135,12 +143,11 @@ export function PantryPage() {
             if (!ing) return null
             const always = isAlwaysAvailable(ing)
             const out = !always && isOutOfStock(item.amountLeft)
-            return (
-              <li key={item.id}>
+            const row = (
                 <button
                   type="button"
                   onClick={() => startEdit(item)}
-                  className="flex w-full gap-3 px-1 py-3 text-left transition hover:bg-ink/[0.03]"
+                  className="flex w-full gap-3 bg-paper px-1 py-3 text-left transition hover:bg-ink/[0.03]"
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md bg-line/40">
                     {item.imageDataUrl ? (
@@ -169,6 +176,19 @@ export function PantryPage() {
                     </div>
                   </div>
                 </button>
+            )
+            return (
+              <li key={item.id}>
+                {always || item.id == null ? (
+                  row
+                ) : (
+                  <SwipeReveal
+                    actionLabel={`Delete ${ing.name}`}
+                    onAction={() => void removePantryItem(item.id!)}
+                  >
+                    {row}
+                  </SwipeReveal>
+                )}
               </li>
             )
           })}
@@ -269,7 +289,7 @@ function PantryItemSheet({
     <Sheet open={open} title={editing ? 'Edit pantry item' : 'Add pantry item'} onClose={onClose}>
       <div className="space-y-3">
         {!editing && ingredients.length === 0 ? (
-          <WarnBanner>Add ingredients in the Ingredient library first.</WarnBanner>
+          <WarnBanner>Add ingredients first.</WarnBanner>
         ) : null}
         <Field label="Ingredient">
           <SelectField

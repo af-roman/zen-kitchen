@@ -234,7 +234,7 @@ export function PlanPage() {
               const cook = dayHasCook(date)
               const meals = dayHasMeals(date)
               const off = dayOffGoal(date)
-              const upcomingEmpty = inMonth && date >= today && !meals && !cook
+              const planned = inMonth && (meals || cook)
               return (
                 <button
                   key={date}
@@ -248,7 +248,7 @@ export function PlanPage() {
                   <span className="mt-1 flex gap-0.5">
                     {cook ? <span className="h-1.5 w-1.5 rounded-full bg-lacquer" /> : null}
                     {off ? <span className="h-1.5 w-1.5 rounded-full bg-warn" /> : null}
-                    {upcomingEmpty ? (
+                    {planned ? (
                       <span className="h-1.5 w-1.5 rounded-full bg-ink/20" />
                     ) : null}
                   </span>
@@ -267,7 +267,7 @@ export function PlanPage() {
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink/20" />
-              Empty from today on
+              Planned
             </li>
           </ul>
         </section>

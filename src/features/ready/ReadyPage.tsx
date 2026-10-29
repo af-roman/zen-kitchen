@@ -55,7 +55,7 @@ export function ReadyPage() {
       <PageHeader
         title="Stock"
         actions={
-          <div className="flex gap-2">
+          <>
             <Button variant="secondary" className="gap-1.5" onClick={() => navigate('/pantry')}>
               <IconPantry className="h-4 w-4" />
               Pantry
@@ -64,7 +64,7 @@ export function ReadyPage() {
               <IconServe className="h-4 w-4" />
               Serve
             </Button>
-          </div>
+          </>
         }
       />
       {!hasAny ? (

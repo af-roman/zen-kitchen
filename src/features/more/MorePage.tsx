@@ -9,7 +9,7 @@ const links: { to: string; label: string; hint: string; icon: Glyph }[] = [
   { to: '/goals', label: 'Goals', hint: 'Daily energy and macros', icon: IconGoals },
   {
     to: '/ingredients',
-    label: 'Ingredient library',
+    label: 'Ingredients',
     hint: 'Food types for recipes',
     icon: IconIngredients,
   },
@@ -27,7 +27,7 @@ export function MorePage() {
   return (
     <div>
       <PageHeader
-        title="Kitchen"
+        title="More"
         subtitle="Settings and library extras."
         actions={
           <Button variant="secondary" onClick={() => navigate('/')}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   addDays,
   eachDayOfInterval,
@@ -178,6 +178,10 @@ export function NumberField({
   /** Narrow control: the value box fits a short number, not a full-width field. */
   compact?: boolean
 }) {
+  const decimals = step > 0 && step < 1 ? 1 : 0
+  const [draft, setDraft] = useState<string | null>(null)
+  const focused = useRef(false)
+
   function clamp(n: number) {
     let next = n
     if (min != null && next < min) next = min
@@ -185,13 +189,39 @@ export function NumberField({
     return next
   }
 
+  function roundToStep(n: number) {
+    if (decimals > 0) return Math.round(n * 10) / 10
+    return Math.round(n)
+  }
+
+  function formatValue(n: number) {
+    if (!Number.isFinite(n)) return ''
+    return String(roundToStep(n))
+  }
+
+  useEffect(() => {
+    if (!focused.current) setDraft(null)
+  }, [value])
+
+  function commit(raw: string) {
+    if (raw === '' || raw === '.') {
+      onChange(clamp(min ?? 0))
+      return
+    }
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return
+    onChange(clamp(roundToStep(n)))
+  }
+
   function bump(delta: number) {
     const raw = Number.isFinite(value) ? value : 0
     const next = clamp(Math.round((raw + delta) / step) * step)
-    // Avoid float noise for common steps
-    const rounded = step < 1 ? Math.round(next * 1000) / 1000 : next
+    const rounded = decimals > 0 ? Math.round(next * 10) / 10 : next
+    setDraft(null)
     onChange(rounded)
   }
+
+  const shown = draft ?? (Number.isFinite(value) ? formatValue(value) : '')
 
   const buttonClass = compact
     ? 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-base text-ink transition hover:border-ink/40 disabled:opacity-40'
@@ -220,16 +250,20 @@ export function NumberField({
         type="text"
         inputMode={inputMode}
         disabled={disabled}
-        value={Number.isFinite(value) ? String(value) : ''}
+        value={shown}
+        onFocus={() => {
+          focused.current = true
+        }}
+        onBlur={() => {
+          focused.current = false
+          setDraft(null)
+        }}
         onChange={(e) => {
           const raw = e.target.value.trim().replace(',', '.')
-          if (raw === '' || raw === '-') {
-            onChange(min ?? 0)
-            return
-          }
-          const n = Number(raw)
-          if (!Number.isFinite(n)) return
-          onChange(clamp(n))
+          const pattern = decimals > 0 ? /^\d*\.?\d{0,1}$/ : /^\d*$/
+          if (raw !== '' && !pattern.test(raw)) return
+          setDraft(raw)
+          commit(raw)
         }}
       />
       <button

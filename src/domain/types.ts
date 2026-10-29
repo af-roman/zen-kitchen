@@ -143,12 +143,19 @@ export interface Ingredient {
    */
   gramsPerMl?: number
   nutritionPer100: Nutrition
+  /**
+   * All four nutrition values are intentionally 0 (salt, and similar).
+   * Distinguishes “never filled in” from a real zero.
+   */
+  zeroNutritionConfirmed?: boolean
   lowStockThreshold: number
   /**
    * Typical purchase pack size in the ingredient’s stock unit (g / ml / pcs).
    * Used to round shopping shortfalls up to whole packs.
    */
   packSize?: number
+  /** Usual price for one pack, in Kč. */
+  averagePackPrice?: number
   /**
    * Days a raw pack keeps in the fridge after purchase/open.
    * Used for “use soon” hints and week-planner scoring.

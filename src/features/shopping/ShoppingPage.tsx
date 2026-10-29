@@ -18,6 +18,7 @@ import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
 import { IconCheck, IconPlus } from '@/shared/icons'
 import { Badge, Button, EmptyState, Field, PageHeader, RemoveButton, SegmentedControl, WarnBanner, inputClass, AutoTextarea } from '@/shared/ui'
+import { SwipeReveal } from '@/shared/SwipeReveal'
 import { Sheet } from '@/shared/Sheet'
 
 type RestockPrefill = {
@@ -178,6 +179,20 @@ export function ShoppingPage() {
     setEditing(null)
     setPrefill(null)
     setRestockOpen(true)
+  }
+
+  async function deleteRestock(id: number) {
+    if (
+      !(await appConfirm(
+        'Delete this restock record? Pantry items created from it will not be removed.',
+        { danger: true, confirmLabel: 'Delete' },
+      ))
+    ) {
+      return
+    }
+    await db.restocks.delete(id)
+    setEditing((current) => (current?.id === id ? null : current))
+    setRestockOpen(false)
   }
 
   function startEditRestock(restock: Restock) {
@@ -469,10 +484,14 @@ export function ShoppingPage() {
           <ul className="space-y-2">
             {restocks.map((r) => (
               <li key={r.id}>
+                <SwipeReveal
+                  actionLabel={`Delete restock ${format(parseISO(r.date), 'd MMM yyyy')}`}
+                  onAction={() => void deleteRestock(r.id!)}
+                >
                 <button
                   type="button"
                   onClick={() => startEditRestock(r)}
-                  className="w-full border-b border-line px-1 py-3 text-left transition hover:bg-ink/[0.03]"
+                  className="w-full border-b border-line bg-paper px-1 py-3 text-left transition hover:bg-ink/[0.03]"
                 >
                   <div className="flex justify-between gap-2">
                     <span className="font-medium">{format(parseISO(r.date), 'd MMM yyyy')}</span>
@@ -490,6 +509,7 @@ export function ShoppingPage() {
                     <p className="mt-1 text-xs text-ink-muted">{r.notes}</p>
                   ) : null}
                 </button>
+                </SwipeReveal>
               </li>
             ))}
           </ul>

@@ -6,6 +6,7 @@ import { INGREDIENT_CATEGORIES, type Ingredient, type IngredientCategory } from 
 import { hasUnsetNutrition, isAlwaysAvailable } from '@/domain/kitchen'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { SelectField } from '@/shared/forms'
+import { SwipeReveal } from '@/shared/SwipeReveal'
 import { Badge, Button, EmptyState, PageHeader, inputClass } from '@/shared/ui'
 import { IngredientEditorSheet } from '@/features/ingredients/IngredientEditorSheet'
 
@@ -61,7 +62,7 @@ export function IngredientsPage() {
   return (
     <div>
       <PageHeader
-        title="Ingredient library"
+        title="Ingredients"
         subtitle="The building blocks for recipes and the pantry."
         actions={
           <>
@@ -122,14 +123,11 @@ export function IngredientsPage() {
         />
       ) : (
         <ul className="space-y-2">
-          {filtered.map((ing) => (
-            <li
-              key={ing.id}
-              className="flex items-center justify-between gap-3 card-elevated px-3 py-3"
-            >
+          {filtered.map((ing) => {
+            const row = (
               <button
                 type="button"
-                className="min-w-0 flex-1 text-left"
+                className="card-elevated w-full px-3 py-3 text-left"
                 onClick={() => {
                   setEditing(ing)
                   setCreating(true)
@@ -148,15 +146,27 @@ export function IngredientsPage() {
                     {ing.nutritionPer100.energyKcal} kcal / 100
                     {ing.unit === 'pcs' ? 'g' : ing.unit}
                   </span>
+                  {ing.averagePackPrice ? (
+                    <span className="text-xs text-ink-muted">{ing.averagePackPrice} Kč / pack</span>
+                  ) : null}
                 </div>
               </button>
-              {isAlwaysAvailable(ing) ? null : (
-                <Button variant="ghost" onClick={() => void remove(ing.id!)}>
-                  Delete
-                </Button>
-              )}
-            </li>
-          ))}
+            )
+            return (
+              <li key={ing.id}>
+                {isAlwaysAvailable(ing) ? (
+                  row
+                ) : (
+                  <SwipeReveal
+                    actionLabel={`Delete ${ing.name}`}
+                    onAction={() => void remove(ing.id!)}
+                  >
+                    {row}
+                  </SwipeReveal>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
 

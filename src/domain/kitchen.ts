@@ -66,11 +66,13 @@ export function hasUnsetNutrition(
         }
         alwaysAvailable?: boolean
         name?: string
+        zeroNutritionConfirmed?: boolean
       }
     | null
     | undefined,
 ): boolean {
   if (!ing || isAlwaysAvailable(ing)) return false
+  if (ing.zeroNutritionConfirmed) return false
   const n = ing.nutritionPer100
   if (!n) return true
   return n.energyKcal === 0 && n.fatG === 0 && n.carbsG === 0 && n.proteinG === 0

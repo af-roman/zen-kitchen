@@ -36,7 +36,7 @@ export function GoalsPage() {
   return (
     <div>
       <PageHeader
-        title="Kitchen goals"
+        title="Goals"
         subtitle="Daily energy and macro balance — every dish is compared to these."
         actions={
           <Button variant="secondary" onClick={() => navigate('/more')}>

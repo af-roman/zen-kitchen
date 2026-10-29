@@ -27,7 +27,8 @@ import { useGoals } from '@/shared/hooks'
 import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
 import { appAlert } from '@/shared/dialog'
 import { MacroBar, MacroInline } from '@/shared/MacroBar'
-import { Badge, Button, EmptyState, PageHeader, RemoveButton, WarnBanner } from '@/shared/ui'
+import { SwipeReveal } from '@/shared/SwipeReveal'
+import { Badge, Button, EmptyState, PageHeader, WarnBanner } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
 export function DayDetailPage() {
@@ -185,10 +186,9 @@ export function DayDetailPage() {
             {sessions.map((s) => {
               const legDishes = s.dishes.filter(isPrepLeg)
               const legOnly = s.dishes.length > 0 && legDishes.length === s.dishes.length
-              return (
+              const card = (
                 <div
-                  key={s.id}
-                  className="rounded-lg border border-line bg-ink/[0.03] px-3 py-2"
+                  className="rounded-lg border border-line bg-paper px-3 py-2"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone="accent">
@@ -235,16 +235,20 @@ export function DayDetailPage() {
                       >
                         Edit
                       </Button>
-                      <Button
-                        variant="ghost"
-                        className="!py-1 !text-xs"
-                        onClick={() => setDeleteSessionId(s.id!)}
-                      >
-                        Delete
-                      </Button>
                     </div>
                   ) : null}
                 </div>
+              )
+              return past ? (
+                <div key={s.id}>{card}</div>
+              ) : (
+                <SwipeReveal
+                  key={s.id}
+                  actionLabel="Delete cooking session"
+                  onAction={() => setDeleteSessionId(s.id!)}
+                >
+                  {card}
+                </SwipeReveal>
               )
             })}
           </div>
@@ -273,11 +277,11 @@ export function DayDetailPage() {
             }
             const mealN = mealNutritionFromItems(m.items, recipeById, ingById)
             const mealBroken = m.items.some(itemBroken)
-            return (
+            const removable = canRemovePlannedMeal(m, date, today)
+            const card = (
               <div
-                key={m.id}
                 className={`rounded-lg border px-3 py-2 text-sm ${
-                  mealBroken ? 'border-warn bg-warn/10' : 'border-line'
+                  mealBroken ? 'border-warn bg-warn/10' : 'border-line bg-paper'
                 }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -297,13 +301,6 @@ export function DayDetailPage() {
                       >
                         {m.skipped ? 'Count in stats' : 'Leave out of stats'}
                       </Button>
-                    ) : null}
-                    {canRemovePlannedMeal(m, date, today) ? (
-                      <RemoveButton
-                        label="Remove"
-                        className="!px-3 !py-1 !text-xs"
-                        onClick={() => void confirmRemovePlannedMeal(date, slot.id)}
-                      />
                     ) : null}
                   </span>
                 </div>
@@ -329,6 +326,17 @@ export function DayDetailPage() {
                   <MacroInline nutrition={mealN} goals={goals} />
                 </div>
               </div>
+            )
+            return removable ? (
+              <SwipeReveal
+                key={m.id}
+                actionLabel={`Remove ${slot.label}`}
+                onAction={() => void confirmRemovePlannedMeal(date, slot.id)}
+              >
+                {card}
+              </SwipeReveal>
+            ) : (
+              <div key={m.id}>{card}</div>
             )
           })}
         </div>

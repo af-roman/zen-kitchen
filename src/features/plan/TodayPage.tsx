@@ -17,7 +17,7 @@ import { useGoals } from '@/shared/hooks'
 import {
   IconArrowRight,
   IconCook,
-  IconKitchen,
+  IconMore,
   IconMeal,
   IconPlan,
   IconServe,
@@ -169,8 +169,8 @@ export function TodayPage() {
         subtitle={format(parseISO(today), 'EEEE d MMMM')}
         actions={
           <Button variant="secondary" className="gap-1.5" onClick={() => navigate('/more')}>
-            <IconKitchen className="h-4 w-4" />
-            Kitchen
+            <IconMore className="h-4 w-4" />
+            More
           </Button>
         }
       />

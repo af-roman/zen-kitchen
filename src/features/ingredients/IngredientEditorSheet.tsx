@@ -8,7 +8,7 @@ import {
   type Unit,
 } from '@/domain/types'
 import { gramsPerMlFromTbsp, gramsPerTbspFromMl } from '@/domain/measures'
-import { NumberField, SelectField } from '@/shared/forms'
+import { Checkbox, NumberField, SelectField } from '@/shared/forms'
 import { Button, Field, inputClass } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
@@ -22,7 +22,9 @@ const emptyForm = {
   fatG: 0,
   carbsG: 0,
   proteinG: 0,
+  zeroNutritionConfirmed: false,
   packSize: 0,
+  averagePackPrice: 0,
   rawFridgeDays: 0,
 }
 
@@ -68,7 +70,9 @@ export function IngredientEditorSheet({
         fatG: ingredient.nutritionPer100.fatG,
         carbsG: ingredient.nutritionPer100.carbsG,
         proteinG: ingredient.nutritionPer100.proteinG,
+        zeroNutritionConfirmed: Boolean(ingredient.zeroNutritionConfirmed),
         packSize: ingredient.packSize ?? 0,
+        averagePackPrice: ingredient.averagePackPrice ?? 0,
         rawFridgeDays: ingredient.rawFridgeDays ?? 0,
       })
       return
@@ -97,8 +101,15 @@ export function IngredientEditorSheet({
       avgPieceGrams: form.unit === 'pcs' ? form.avgPieceGrams : undefined,
       gramsPerMl: form.unit === 'g' ? gramsPerMlFromTbsp(form.gramsPerTbsp) : undefined,
       nutritionPer100: nutrition,
+      zeroNutritionConfirmed:
+        form.zeroNutritionConfirmed &&
+        nutrition.energyKcal === 0 &&
+        nutrition.fatG === 0 &&
+        nutrition.carbsG === 0 &&
+        nutrition.proteinG === 0,
       lowStockThreshold: 0,
       packSize: form.packSize > 0 ? form.packSize : undefined,
+      averagePackPrice: form.averagePackPrice > 0 ? form.averagePackPrice : 0,
       rawFridgeDays: form.rawFridgeDays > 0 ? form.rawFridgeDays : undefined,
       createdAt: ingredient?.createdAt ?? new Date().toISOString(),
       alwaysAvailable: ingredient?.alwaysAvailable,
@@ -210,11 +221,29 @@ export function IngredientEditorSheet({
                     value={form[key]}
                     min={0}
                     step={0.1}
-                    onChange={(n) => setForm({ ...form, [key]: n })}
+                    onChange={(n) =>
+                      setForm({
+                        ...form,
+                        [key]: n,
+                        zeroNutritionConfirmed: n === 0 ? form.zeroNutritionConfirmed : false,
+                      })
+                    }
                   />
                 </Field>
               ))}
             </div>
+            <Checkbox
+              checked={form.zeroNutritionConfirmed}
+              disabled={
+                form.energyKcal !== 0 ||
+                form.fatG !== 0 ||
+                form.carbsG !== 0 ||
+                form.proteinG !== 0
+              }
+              onChange={(zeroNutritionConfirmed) => setForm({ ...form, zeroNutritionConfirmed })}
+              label="These zeros are real"
+              hint="Salt and similar have no energy or macros. This turns off the missing-nutrition warning."
+            />
             <Field
               label={`Pack size (${form.unit})`}
               hint="Typical buy size. Shopping rounds shortfalls up to whole packs."
@@ -224,6 +253,18 @@ export function IngredientEditorSheet({
                 min={0}
                 step={1}
                 onChange={(packSize) => setForm({ ...form, packSize })}
+              />
+            </Field>
+            <Field
+              label="Average pack price (Kč)"
+              hint="Usual price for one pack. 0 = unknown."
+            >
+              <NumberField
+                value={form.averagePackPrice}
+                min={0}
+                step={1}
+                inputMode="numeric"
+                onChange={(averagePackPrice) => setForm({ ...form, averagePackPrice })}
               />
             </Field>
             <Field

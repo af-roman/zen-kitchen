@@ -95,7 +95,7 @@ export function deriveWeekJourney(input: {
       primary: {
         kind: 'serve',
         label: 'Serve today',
-        to: `/serve?date=${today}`,
+        to: `/plan/${today}?serve=open`,
       },
     }
   }

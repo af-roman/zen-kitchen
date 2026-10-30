@@ -17,7 +17,8 @@ import type {
   SessionDishPlan,
 } from '@/domain/types'
 import { INGREDIENT_CATEGORIES } from '@/domain/types'
-import { expiryFromCook, formatQuantity, isAlwaysAvailable, isPrepRecipe, prepYieldAmount, storageLabel } from '@/domain/kitchen'
+import { expiryFromCook, formatQuantity, isAlwaysAvailable, isPrepRecipe, prepYieldAmount, storageLabel, todayISO } from '@/domain/kitchen'
+import { planServePath } from '@/features/plan/servePath'
 import {
   defaultStoragePlace,
   recipeStorageOptions,
@@ -663,7 +664,7 @@ function CookSessionView({
                 >
                   Fill my week
                 </Button>
-                <Button className="w-full" variant="secondary" onClick={() => navigate('/serve')}>
+                <Button className="w-full" variant="secondary" onClick={() => navigate(planServePath(todayISO()))}>
                   Assign meals manually
                 </Button>
                 <Button

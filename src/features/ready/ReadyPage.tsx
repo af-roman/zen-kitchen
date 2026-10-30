@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/database'
 import { AssignBatchSheet } from '@/features/plan/AssignBatchSheet'
+import { planServePath } from '@/features/plan/servePath'
 import { portionIngredientCost } from '@/domain/lotCost'
 import type { BatchStorage, Ingredient, ReadyBatch, Recipe } from '@/domain/types'
 import { dishCategoryLabel } from '@/domain/dishTaxonomy'
@@ -60,7 +61,7 @@ export function ReadyPage() {
               <IconPantry className="h-4 w-4" />
               Pantry
             </Button>
-            <Button className="gap-1.5" onClick={() => navigate('/serve')}>
+            <Button className="gap-1.5" onClick={() => navigate(planServePath(todayISO()))}>
               <IconServe className="h-4 w-4" />
               Serve
             </Button>
@@ -72,7 +73,7 @@ export function ReadyPage() {
           title="Nothing ready yet"
           body="Finish a cook session and batches show up here."
           actions={
-            <Button className="gap-2" onClick={() => navigate('/serve')}>
+            <Button className="gap-2" onClick={() => navigate(planServePath(todayISO()))}>
               <IconServe className="h-4 w-4" />
               Serve a meal
             </Button>

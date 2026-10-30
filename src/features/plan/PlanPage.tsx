@@ -20,6 +20,7 @@ import {
 } from '@/domain/planCalendar'
 import { loadPlannerPrefs } from '@/domain/weekPlanner/prefs'
 import { mealNutritionFromItems, servingItemNeedsFood } from '@/domain/servings'
+import { planServePath } from '@/features/plan/servePath'
 import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
 import { SwipeReveal } from '@/shared/SwipeReveal'
 import { assetUrl } from '@/shared/assetUrl'
@@ -189,7 +190,7 @@ export function PlanPage() {
                 <IconSpark className="h-4 w-4" />
                 Replan week
               </Button>
-              <Button className="gap-1.5" onClick={() => navigate(`/serve?date=${today}`)}>
+              <Button className="gap-1.5" onClick={() => navigate(planServePath(today))}>
                 <IconServe className="h-4 w-4" />
                 Serve today
               </Button>
@@ -374,9 +375,7 @@ export function PlanPage() {
                           type="button"
                           onClick={() =>
                             navigate(
-                              empty || needsFood
-                                ? `/serve?date=${date}&meal=${meal}`
-                                : `/plan/${date}`,
+                              empty || needsFood ? planServePath(date, meal) : `/plan/${date}`,
                             )
                           }
                           className={`meal-tile flex w-full gap-0 text-left transition active:scale-[0.99] ${

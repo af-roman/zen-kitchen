@@ -23,6 +23,7 @@ import {
   IconServe,
   IconShop,
 } from '@/shared/icons'
+import { planServePath } from '@/features/plan/servePath'
 import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
 import { MacroBar } from '@/shared/MacroBar'
 import { SwipeReveal } from '@/shared/SwipeReveal'
@@ -249,9 +250,7 @@ export function TodayPage() {
                 type="button"
                 onClick={() =>
                   navigate(
-                    empty || needsFood
-                      ? `/serve?date=${today}&meal=${meal}`
-                      : `/plan/${today}`,
+                    empty || needsFood ? planServePath(today, meal) : `/plan/${today}`,
                   )
                 }
                 className={`meal-tile flex w-full gap-0 text-left transition active:scale-[0.99] ${

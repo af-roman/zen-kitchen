@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/database'
@@ -10,8 +10,18 @@ import {
   setServingSkipped,
 } from '@/db/servingOps'
 import { AssignBatchSheet } from '@/features/plan/AssignBatchSheet'
+import { MealSlotEditor } from '@/features/plan/MealSlotEditor'
+import { planServePath } from '@/features/plan/servePath'
 import { IconMeal } from '@/shared/icons'
-import { MEAL_SLOTS } from '@/domain/types'
+import {
+  MEAL_SLOTS,
+  parseMealSlot,
+  type Ingredient,
+  type MealSlot,
+  type Recipe,
+  type Serving,
+  type ServingItem,
+} from '@/domain/types'
 import { addNutrition, emptyNutrition, scaleNutrition } from '@/domain/nutrition'
 import { formatQuantity, isPrepRecipe, todayISO } from '@/domain/kitchen'
 import { cookDateFromStage, dishStage, isPrepLeg, stageLabel } from '@/domain/stages'
@@ -27,12 +37,79 @@ import { useGoals } from '@/shared/hooks'
 import { canRemovePlannedMeal, confirmRemovePlannedMeal } from '@/features/plan/removePlannedMeal'
 import { appAlert } from '@/shared/dialog'
 import { MacroBar, MacroInline } from '@/shared/MacroBar'
+import { MealShareLegend, MealStack, dishColorClass } from '@/shared/MealShare'
 import { SwipeReveal } from '@/shared/SwipeReveal'
 import { Badge, Button, EmptyState, PageHeader, WarnBanner } from '@/shared/ui'
 import { Sheet } from '@/shared/Sheet'
 
+function MealShareGraph({
+  items,
+  recipeById,
+  ingById,
+  broken,
+}: {
+  items: ServingItem[]
+  recipeById: Map<number, Recipe>
+  ingById: Map<number, Ingredient>
+  broken?: (item: ServingItem) => boolean
+}) {
+  if (items.length === 0) return null
+  const segments = items.map((item, index) => ({
+    key: `${index}-${servingItemLabel(item, recipeById)}`,
+    label: `${servingItemLabel(item, recipeById)} × ${item.portions}`,
+    kcal: scaleNutrition(resolveServingNutrition(item, recipeById, ingById), item.portions)
+      .energyKcal,
+    colorClass: dishColorClass(index),
+  }))
+  return (
+    <div className="mt-2">
+      <MealStack segments={segments} />
+      <MealShareLegend
+        segments={segments}
+        note={(index) => {
+          const item = items[index]
+          if (!item) return null
+          const needsFood = broken?.(item) ?? false
+          const other = isAdhocServingItem(item)
+          if (!needsFood && !other) return null
+          return (
+            <span className="inline-flex items-center gap-1">
+              {other ? <Badge>Other</Badge> : null}
+              {needsFood ? <Badge tone="warn">Needs food</Badge> : null}
+            </span>
+          )
+        }}
+      />
+    </div>
+  )
+}
+
+function sameDraft(a: ServingItem[], b: ServingItem[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((item, index) => {
+    const other = b[index]
+    return (
+      item.portions === other?.portions &&
+      item.batchId === other.batchId &&
+      item.recipeId === other.recipeId &&
+      item.plannedSessionId === other.plannedSessionId &&
+      item.name === other.name &&
+      item.nutrition.energyKcal === other.nutrition.energyKcal
+    )
+  })
+}
+
+function firstOpenMeal(servings: Serving[]): MealSlot {
+  const missing = MEAL_SLOTS.find((slot) => {
+    const meal = servings.find((serving) => serving.meal === slot.id)
+    return meal == null || meal.items.length === 0
+  })
+  return missing?.id ?? 'lunch'
+}
+
 export function DayDetailPage() {
   const { date: dateParam } = useParams()
+  const [params] = useSearchParams()
   const navigate = useNavigate()
   const goals = useGoals()
   const today = todayISO()
@@ -41,11 +118,28 @@ export function DayDetailPage() {
   const isToday = date === today
   const [deleteSessionId, setDeleteSessionId] = useState<number | null>(null)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [draft, setDraft] = useState<{ meal: MealSlot; items: ServingItem[] } | null>(null)
+  const onDraftChange = useCallback((meal: MealSlot, items: ServingItem[]) => {
+    setDraft((prev) => {
+      if (prev?.meal === meal && sameDraft(prev.items, items)) return prev
+      return { meal, items }
+    })
+  }, [])
 
   const sessions =
     useLiveQuery(() => db.cookingSessions.where('date').equals(date).toArray(), [date]) ?? []
-  const servings =
-    useLiveQuery(() => db.servings.where('date').equals(date).toArray(), [date]) ?? []
+  const servingsQuery = useLiveQuery(
+    () => db.servings.where('date').equals(date).toArray(),
+    [date],
+  )
+  const servings = servingsQuery ?? []
+  const serveParam = params.get('serve')
+  const sessionIdRaw = params.get('sessionId')
+  const sessionId =
+    sessionIdRaw != null && Number.isFinite(Number(sessionIdRaw)) ? Number(sessionIdRaw) : undefined
+  const requestedMeal = parseMealSlot(serveParam)
+  const editorMeal = requestedMeal ?? firstOpenMeal(servings)
+  const editorOpen = !past && serveParam != null && serveParam !== '' && servingsQuery !== undefined
   const allSessions = useLiveQuery(() => db.cookingSessions.toArray(), []) ?? []
   const allBatches = useLiveQuery(() => db.readyBatches.toArray(), []) ?? []
   const recipes = useLiveQuery(() => db.recipes.toArray(), []) ?? []
@@ -72,14 +166,15 @@ export function DayDetailPage() {
     })()
   }, [])
 
-  const dayNutrition = useMemo(
-    () =>
-      servings.reduce(
-        (acc, s) => addNutrition(acc, mealNutritionFromItems(s.items, recipeById, ingById)),
-        emptyNutrition(),
-      ),
-    [servings, recipeById, ingById],
-  )
+  const dayNutrition = useMemo(() => {
+    return MEAL_SLOTS.reduce((acc, slot) => {
+      const saved = servings.find((serving) => serving.meal === slot.id)
+      const items =
+        editorOpen && draft?.meal === slot.id ? draft.items : (saved?.items ?? [])
+      if (items.length === 0) return acc
+      return addNutrition(acc, mealNutritionFromItems(items, recipeById, ingById))
+    }, emptyNutrition())
+  }, [servings, recipeById, ingById, editorOpen, draft])
 
   const needsFoodCount = servings.filter((s) => s.items.some(itemBroken)).length
 
@@ -105,8 +200,27 @@ export function DayDetailPage() {
     navigate(`/cook/${sessionId}`)
   }
 
+  function openMeal(meal: MealSlot) {
+    if (past) return
+    if (!editorOpen || meal !== editorMeal) setDraft(null)
+    navigate(planServePath(date, meal, sessionId), { replace: true })
+  }
+
+  function closeServe() {
+    setDraft(null)
+    navigate(`/plan/${date}`, { replace: true })
+  }
+
+  function goToDate(next: string) {
+    if (isPastDate(next) || !editorOpen) {
+      navigate(`/plan/${next}`)
+      return
+    }
+    navigate(planServePath(next, editorMeal, sessionId))
+  }
+
   function shiftDay(direction: -1 | 1) {
-    navigate(`/plan/${format(addDays(parseISO(date), direction), 'yyyy-MM-dd')}`)
+    goToDate(format(addDays(parseISO(date), direction), 'yyyy-MM-dd'))
   }
 
   return (
@@ -132,7 +246,7 @@ export function DayDetailPage() {
           →
         </Button>
         {!isToday ? (
-          <Button variant="secondary" onClick={() => navigate(`/plan/${today}`)}>
+          <Button variant="secondary" onClick={() => goToDate(today)}>
             Today
           </Button>
         ) : null}
@@ -153,7 +267,11 @@ export function DayDetailPage() {
         <MacroBar
           nutrition={dayNutrition}
           goals={goals}
-          goalCaption="This day vs your daily targets"
+          goalCaption={
+            editorOpen
+              ? 'This day vs your daily targets, with the meal you are editing'
+              : 'This day vs your daily targets'
+          }
         />
       </section>
 
@@ -162,11 +280,7 @@ export function DayDetailPage() {
           <Button className="flex-1" onClick={() => navigate(`/sessions/new?date=${date}`)}>
             Plan session
           </Button>
-          <Button
-            className="flex-1"
-            variant="secondary"
-            onClick={() => navigate(`/serve?date=${date}`)}
-          >
+          <Button className="flex-1" variant="secondary" onClick={() => openMeal(firstOpenMeal(servings))}>
             Serve
           </Button>
           <Button className="flex-1" variant="secondary" onClick={() => setAssignOpen(true)}>
@@ -262,38 +376,65 @@ export function DayDetailPage() {
         <div className="space-y-2">
           {MEAL_SLOTS.map((slot) => {
             const m = servings.find((s) => s.meal === slot.id)
-            if (!m) {
+            const selected = editorOpen && editorMeal === slot.id
+            const showingDraft = editorOpen && draft?.meal === slot.id
+            const displayItems = showingDraft ? draft.items : (m?.items ?? [])
+            if (!m && displayItems.length === 0) {
+              if (past) {
+                return (
+                  <div
+                    key={slot.id}
+                    className="rounded-lg border border-dashed border-line px-3 py-2 text-sm text-ink-muted"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <IconMeal meal={slot.id} className="h-3.5 w-3.5" />
+                      {slot.label}: —
+                    </span>
+                  </div>
+                )
+              }
               return (
-                <div
+                <button
                   key={slot.id}
-                  className="rounded-lg border border-dashed border-line px-3 py-2 text-sm text-ink-muted"
+                  type="button"
+                  onClick={() => openMeal(slot.id)}
+                  className={`w-full rounded-lg border border-dashed px-3 py-2 text-left text-sm ${
+                    selected
+                      ? 'border-lacquer/50 bg-lacquer/5 text-ink'
+                      : 'border-line text-ink-muted'
+                  }`}
                 >
                   <span className="inline-flex items-center gap-2">
                     <IconMeal meal={slot.id} className="h-3.5 w-3.5" />
-                    {slot.label}: —
+                    {slot.label}: Add dishes
+                    {selected ? <Badge tone="ok">Editing</Badge> : null}
                   </span>
-                </div>
+                </button>
               )
             }
-            const mealN = mealNutritionFromItems(m.items, recipeById, ingById)
-            const mealBroken = m.items.some(itemBroken)
+            const mealN = mealNutritionFromItems(displayItems, recipeById, ingById)
+            const mealBroken = !showingDraft && (m?.items.some(itemBroken) ?? false)
             const removable = canRemovePlannedMeal(m, date, today)
-            const card = (
-              <div
-                className={`rounded-lg border px-3 py-2 text-sm ${
-                  mealBroken ? 'border-warn bg-warn/10' : 'border-line bg-paper'
-                }`}
-              >
+            const shellClass = `w-full rounded-lg border px-3 py-2 text-left text-sm ${
+              selected
+                ? 'border-lacquer/40 bg-lacquer/5'
+                : mealBroken
+                  ? 'border-warn bg-warn/10'
+                  : 'border-line bg-paper'
+            }`
+            const body = (
+              <>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-2 font-medium">
                     <IconMeal meal={slot.id} className="h-3.5 w-3.5" />
                     {slot.label}
                   </span>
                   <span className="flex flex-wrap items-center gap-2">
+                    {selected ? <Badge tone="ok">Editing</Badge> : null}
                     {mealBroken ? <Badge tone="warn">Needs food</Badge> : null}
-                    {m.kept ? <Badge tone="ok">Consumed</Badge> : null}
-                    {m.skipped ? <Badge>Left out</Badge> : null}
-                    {past && m.id != null ? (
+                    {m?.kept ? <Badge tone="ok">Consumed</Badge> : null}
+                    {m?.skipped ? <Badge>Left out</Badge> : null}
+                    {past && m?.id != null ? (
                       <Button
                         variant="ghost"
                         className="!py-1 !text-xs"
@@ -304,30 +445,26 @@ export function DayDetailPage() {
                     ) : null}
                   </span>
                 </div>
-                {m.items.map((item, idx) => (
-                  <div key={idx} className="mt-1.5 space-y-0.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span>
-                        {servingItemLabel(item, recipeById)} ×{item.portions}
-                      </span>
-                      {isAdhocServingItem(item) ? <Badge>Other</Badge> : null}
-                      {itemBroken(item) ? <Badge tone="warn">Needs food</Badge> : null}
-                    </div>
-                    <MacroInline
-                      nutrition={scaleNutrition(
-                        resolveServingNutrition(item, recipeById, ingById),
-                        item.portions,
-                      )}
-                    />
-                  </div>
-                ))}
+                <MealShareGraph
+                  items={displayItems}
+                  recipeById={recipeById}
+                  ingById={ingById}
+                  broken={showingDraft ? undefined : itemBroken}
+                />
                 <div className="mt-1.5 border-t border-line/60 pt-1.5">
                   <span className="text-xs font-medium text-ink">Meal · </span>
                   <MacroInline nutrition={mealN} goals={goals} />
                 </div>
-              </div>
+              </>
             )
-            return removable ? (
+            const card = past ? (
+              <div className={shellClass}>{body}</div>
+            ) : (
+              <button type="button" onClick={() => openMeal(slot.id)} className={shellClass}>
+                {body}
+              </button>
+            )
+            return removable && m ? (
               <SwipeReveal
                 key={m.id}
                 actionLabel={`Remove ${slot.label}`}
@@ -336,13 +473,27 @@ export function DayDetailPage() {
                 {card}
               </SwipeReveal>
             ) : (
-              <div key={m.id}>{card}</div>
+              <div key={m?.id ?? slot.id}>{card}</div>
             )
           })}
         </div>
       </section>
 
-      {sessions.length === 0 && servings.length === 0 ? (
+      {editorOpen ? (
+        <MealSlotEditor
+          key={`${date}:${editorMeal}`}
+          date={date}
+          meal={editorMeal}
+          sessionId={sessionId}
+          initialItems={servings.find((serving) => serving.meal === editorMeal)?.items ?? []}
+          onDraftChange={onDraftChange}
+          onMealChange={openMeal}
+          onClose={closeServe}
+          onSaved={closeServe}
+        />
+      ) : null}
+
+      {sessions.length === 0 && servings.length === 0 && !editorOpen ? (
         <EmptyState
           title="Nothing planned"
           body={
@@ -354,7 +505,7 @@ export function DayDetailPage() {
             past ? undefined : (
               <>
                 <Button onClick={() => navigate(`/sessions/new?date=${date}`)}>Plan session</Button>
-                <Button variant="secondary" onClick={() => navigate(`/serve?date=${date}`)}>
+                <Button variant="secondary" onClick={() => openMeal(firstOpenMeal(servings))}>
                   Serve
                 </Button>
               </>

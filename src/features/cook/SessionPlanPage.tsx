@@ -16,6 +16,7 @@ import { appAlert } from '@/shared/dialog'
 import { reservedIngredientUsage, stockTotals } from '@/domain/recipeMath'
 import { addShortfallsToShopping, sessionShortfalls } from '@/db/shoppingOps'
 import { weekFillFromSessionId } from '@/db/weekFillFromSession'
+import { planServePath } from '@/features/plan/servePath'
 import {
   dishStage,
   isPrepLeg,
@@ -587,7 +588,7 @@ export function SessionPlanPage() {
               onClick={() => {
                 const id = savedOffer.id
                 setSavedOffer(null)
-                navigate(`/serve?sessionId=${id}`)
+                navigate(planServePath(isPastDate(date) ? today : date, 'open', id))
               }}
             >
               Assign meals manually

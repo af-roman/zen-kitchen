@@ -35,7 +35,6 @@ import {
 import { normalizeYoutubeUrl } from '@/domain/youtube'
 import { YoutubeWatchButton } from '@/shared/YoutubeWatchButton'
 import { loadRecipeTaste, setRecipeTaste, type RecipeTaste } from '@/domain/weekPlanner'
-import { recipeMealRoles } from '@/domain/mealRoles'
 import { appConfirm } from '@/shared/dialog'
 import { Badge, Button, PageHeader, WarnBanner } from '@/shared/ui'
 
@@ -108,7 +107,6 @@ export function RecipeDetailPage() {
   ].slice(0, 5)
   const stepGalleryItems = galleryItemsFromSteps(r.steps)
   const youtubeHref = normalizeYoutubeUrl(r.youtubeUrl ?? '')
-  const mealRoles = recipeMealRoles(r)
 
   async function startCookNow() {
     if (staged) {
@@ -202,9 +200,6 @@ export function RecipeDetailPage() {
             {avail.available}/{avail.needed} in pantry
           </Badge>
         </div>
-        {mealRoles.length > 0 ? (
-          <p className="text-sm text-ink-muted">Plate roles: {mealRoles.join(' · ')}</p>
-        ) : null}
         <p className="text-sm text-ink-muted">
           {techniqueLabel(recipeTechnique(r))} · {formatQuantity(r, r.portions)}
         </p>

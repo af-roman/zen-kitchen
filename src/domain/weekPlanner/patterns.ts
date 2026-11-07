@@ -1,10 +1,10 @@
-import type { MealSlot } from '@/domain/types'
-import type { MealRole } from '@/domain/types'
+import type { DishCategory, MealSlot } from '@/domain/types'
 
 export type MealPatternId = 'simple' | 'ichiju_sansai' | 'bento'
 
 export type PatternSlot = {
-  role: MealRole
+  /** Dish category that fills this place on the plate. */
+  role: DishCategory
   /** Soft label for draft UI. */
   label: string
 }
@@ -39,7 +39,7 @@ export const MEAL_PATTERNS: Record<MealPatternId, MealPattern> = {
       { role: 'staple', label: 'Rice' },
       { role: 'main', label: 'Protein' },
       { role: 'side', label: 'Side' },
-      { role: 'pickle', label: 'Pickle' },
+      { role: 'sauce', label: 'Sauce' },
     ],
   },
 }

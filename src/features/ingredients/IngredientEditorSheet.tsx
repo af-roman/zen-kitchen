@@ -40,7 +40,6 @@ export function IngredientEditorSheet({
   seed,
   onClose,
   onSaved,
-  zClass,
 }: {
   open: boolean
   /** Existing row. Omit to create. */
@@ -49,7 +48,6 @@ export function IngredientEditorSheet({
   seed?: IngredientSeed | null
   onClose: () => void
   onSaved: (ingredient: Ingredient) => void
-  zClass?: string
 }) {
   const [form, setForm] = useState(emptyForm)
 
@@ -141,7 +139,6 @@ export function IngredientEditorSheet({
       open={open}
       title={ingredient ? 'Edit ingredient' : 'Add ingredient'}
       onClose={onClose}
-      zClass={zClass}
     >
       <div className="space-y-3">
         {ingredient?.alwaysAvailable ? (

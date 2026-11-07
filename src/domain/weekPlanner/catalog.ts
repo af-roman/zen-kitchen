@@ -1,5 +1,5 @@
+import { recipeCategory } from '@/domain/dishTaxonomy'
 import { isDishRecipe, isPrepRecipe } from '@/domain/kitchen'
-import { recipeMealRoles } from '@/domain/mealRoles'
 import { recipeNutrition } from '@/domain/recipeMath'
 import { recipeStorageOptions, storageDaysFor } from '@/domain/storage'
 import type { Goals, Ingredient, PantryItem, Recipe } from '@/domain/types'
@@ -39,12 +39,12 @@ export function buildPlannerCatalog(input: {
       )
     }
 
+    const category = recipeCategory(recipe)
     candidates.push({
       recipeId: recipe.id,
       name: recipe.name,
-      category: recipe.category,
-      isStaple: recipe.category === 'staple',
-      mealRoles: recipeMealRoles(recipe),
+      category,
+      isStaple: category === 'staple',
       portionsBase: Math.max(1, recipe.portions),
       nutritionPerPortion: recipeNutrition(recipe, ingredientById),
       fridgeDays: planningFridgeDays(recipe),

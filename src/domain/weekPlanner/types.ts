@@ -1,4 +1,4 @@
-import type { MealRole, MealSlot, Nutrition } from '@/domain/types'
+import type { DishCategory, MealSlot, Nutrition } from '@/domain/types'
 import type { MealPatternId } from './patterns'
 
 export type PlannerPrefs = {
@@ -40,8 +40,8 @@ export type WeekDraftServing = {
    * (cooked on `cookDate`); `recipeId` is the transform dish.
    */
   fromRecipeId?: number
-  /** Pattern role this item fills (staple, soup, …). */
-  role?: MealRole
+  /** Dish category this item fills (staple, soup, …). */
+  role?: DishCategory
   /** Soft label for draft UI (Rice, Soup, …). */
   roleLabel?: string
 }
@@ -90,9 +90,8 @@ export type WeekDraft = {
 export type RecipeCandidate = {
   recipeId: number
   name: string
-  category: string
+  category: DishCategory
   isStaple: boolean
-  mealRoles: MealRole[]
   portionsBase: number
   nutritionPerPortion: Nutrition
   /** Fridge keep days used for planning eat-by. */

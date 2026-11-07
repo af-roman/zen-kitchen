@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { RecipeStep } from '@/domain/types'
 import { assetUrl } from '@/shared/assetUrl'
+import { useModalStack } from '@/shared/modalStack'
 import { useBodyScrollLock } from '@/shared/scrollLock'
 import { Button } from '@/shared/ui'
 
@@ -72,11 +73,11 @@ export function StepImageGallery({
   }, [open, startId])
 
   useBodyScrollLock(open)
+  const { zIndex, top } = useModalStack(open, onClose)
 
   useEffect(() => {
-    if (!open) return
+    if (!open || !top) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1))
       if (e.key === 'ArrowRight') setIndex((i) => Math.min(items.length - 1, i + 1))
     }
@@ -84,7 +85,7 @@ export function StepImageGallery({
     return () => {
       window.removeEventListener('keydown', onKey)
     }
-  }, [open, onClose, items.length])
+  }, [open, top, items.length])
 
   if (!open || items.length === 0) return null
 
@@ -95,7 +96,8 @@ export function StepImageGallery({
   return createPortal(
     <div
       data-scroll-lock-allow
-      className="fixed inset-0 z-[80] flex flex-col bg-ink/95 text-paper-elevated touch-manipulation"
+      className="fixed inset-0 flex flex-col bg-ink/95 text-paper-elevated touch-manipulation"
+      style={{ zIndex }}
       role="dialog"
       aria-modal="true"
       aria-label="Step photo gallery"

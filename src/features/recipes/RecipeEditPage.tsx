@@ -6,11 +6,9 @@ import {
   DISH_CATEGORIES,
   EFFORT_LEVELS,
   INGREDIENT_CATEGORIES,
-  MEAL_ROLES,
   PREPARATION_TECHNIQUES,
   type DishCategory,
   type Effort,
-  type MealRole,
   type MeasureUnit,
   type PreparationTechnique,
   type Recipe,
@@ -18,7 +16,6 @@ import {
   type RecipeKind,
   type RecipeStep,
 } from '@/domain/types'
-import { mealRolesFromCategory, recipeMealRoles } from '@/domain/mealRoles'
 import { recipeKindOf, uid } from '@/domain/kitchen'
 import { recipeCategory, recipeTechnique } from '@/domain/dishTaxonomy'
 import { readRecipeStorageDays, recipeStorageFields, recipeStorageOptions } from '@/domain/storage'
@@ -82,7 +79,6 @@ export function RecipeEditPage() {
   const [yieldIngredientId, setYieldIngredientId] = useState(0)
   const [yieldAmount, setYieldAmount] = useState(0)
   const [category, setCategory] = useState<DishCategory>('other')
-  const [mealRoles, setMealRoles] = useState<MealRole[]>(() => mealRolesFromCategory('other'))
   const [technique, setTechnique] = useState<PreparationTechnique>('other')
   const [effort, setEffort] = useState<Effort>('easy')
   const [portions, setPortions] = useState(4)
@@ -228,7 +224,6 @@ export function RecipeEditPage() {
     setYieldIngredientId(existing.yieldIngredientId ?? ingredients[0]?.id ?? 0)
     setYieldAmount(existing.yieldAmount ?? 0)
     setCategory(recipeCategory(existing))
-    setMealRoles(recipeMealRoles(existing))
     setTechnique(recipeTechnique(existing))
     setEffort(existing.effort)
     setPortions(existing.portions)
@@ -304,7 +299,6 @@ export function RecipeEditPage() {
       yieldIngredientId: isPrep ? yieldIngredientId : undefined,
       yieldAmount: isPrep ? yieldAmount : undefined,
       category,
-      mealRoles: mealRoles.length ? mealRoles : mealRolesFromCategory(category),
       technique,
       effort,
       portions,
@@ -337,7 +331,7 @@ export function RecipeEditPage() {
       seeded: existing?.seeded,
     }
     if (recipeId) {
-      await db.recipes.update(recipeId, payload)
+      await db.recipes.put({ ...payload, id: recipeId })
       navigate(`/recipes/${recipeId}`)
     } else {
       const newId = await db.recipes.add(payload)
@@ -463,44 +457,10 @@ export function RecipeEditPage() {
                 <SelectField
                   title={isPrep ? 'Category' : 'Dish category'}
                   value={category}
-                  onChange={(next) => {
-                    setCategory(next)
-                    setMealRoles((prev) => {
-                      const inferredBefore = mealRolesFromCategory(category)
-                      const same =
-                        prev.length === inferredBefore.length &&
-                        prev.every((r) => inferredBefore.includes(r))
-                      return same ? mealRolesFromCategory(next) : prev
-                    })
-                  }}
+                  onChange={setCategory}
                   options={DISH_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
                 />
               </Field>
-              {!isPrep ? (
-                <div className="sm:col-span-2">
-                  <Field
-                    label="Meal roles"
-                    hint="How this dish fills 一汁三菜 / bento. Defaults from category."
-                  >
-                    <div className="flex flex-wrap gap-3">
-                      {MEAL_ROLES.map((role) => (
-                        <Checkbox
-                          key={role.id}
-                          checked={mealRoles.includes(role.id)}
-                          label={role.label}
-                          onChange={(on) => {
-                            setMealRoles((prev) =>
-                              on
-                                ? [...new Set([...prev, role.id])]
-                                : prev.filter((r) => r !== role.id),
-                            )
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </Field>
-                </div>
-              ) : null}
               <Field label="Technique">
                 <SelectField
                   title="Technique"
@@ -1084,7 +1044,6 @@ export function RecipeEditPage() {
             setSource(draft.source)
             setPortions(draft.portions)
             if (draft.category) setCategory(draft.category)
-            if (draft.mealRoles?.length) setMealRoles(draft.mealRoles)
             setLines(draft.lines)
             setSteps(draft.steps)
             setQuickStepsText(draft.quickStepsText)

@@ -173,19 +173,6 @@ export function DialogProvider({ children }: { children: ReactNode }) {
 
   useBodyScrollLock(current != null)
 
-  useEffect(() => {
-    if (!current) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        dismiss(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, promptValue])
-
   function advance() {
     setQueue((prev) => prev.slice(1))
   }
@@ -212,7 +199,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
     <DialogContext.Provider value={api}>
       {children}
       {current ? (
-        <ModalOverlay zClass="z-[60]" onDismiss={() => dismiss(false)}>
+        <ModalOverlay onDismiss={() => dismiss(false)}>
           <div
             data-scroll-lock-allow
             className="pointer-events-auto relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full max-w-md overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated p-5 shadow-card"

@@ -208,17 +208,6 @@ export interface RecipeStep {
 
 export type RecipeKind = 'dish' | 'prep'
 
-/** How a dish can fill a composed meal pattern (一汁三菜 / bento). */
-export type MealRole = 'staple' | 'soup' | 'main' | 'side' | 'pickle'
-
-export const MEAL_ROLES: { id: MealRole; label: string }[] = [
-  { id: 'staple', label: 'Staple (rice etc.)' },
-  { id: 'soup', label: 'Soup' },
-  { id: 'main', label: 'Main' },
-  { id: 'side', label: 'Side' },
-  { id: 'pickle', label: 'Pickle / relish' },
-]
-
 export interface Recipe {
   id?: number
   name: string
@@ -236,10 +225,6 @@ export interface Recipe {
   /** Prep only: amount yielded at the recipe’s base scale (ingredient unit) */
   yieldAmount?: number
   category: DishCategory
-  /**
-   * Roles this dish can play in meal patterns. When omitted, inferred from category.
-   */
-  mealRoles?: MealRole[]
   /** Primary cooking method; older recipes may omit this (inferred from legacy category). */
   technique?: PreparationTechnique
   effort: Effort

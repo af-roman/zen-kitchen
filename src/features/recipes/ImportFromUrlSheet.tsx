@@ -19,10 +19,9 @@ import {
 } from '@/domain/recipeImport/synonyms'
 import { uid } from '@/domain/kitchen'
 import { IngredientEditorSheet } from '@/features/ingredients/IngredientEditorSheet'
-import { mealRolesFromCategory } from '@/domain/mealRoles'
 import { canUseMeasureUnit, toStockAmount } from '@/domain/measures'
 import { DEFAULT_SUBRECIPE } from '@/domain/recipeMath'
-import type { DishCategory, MealRole } from '@/domain/types'
+import type { DishCategory } from '@/domain/types'
 import { NumberField } from '@/shared/forms'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
 import { Sheet } from '@/shared/Sheet'
@@ -45,7 +44,6 @@ export type ImportedRecipeDraft = {
   source: string
   portions: number
   category?: DishCategory
-  mealRoles?: MealRole[]
   lines: RecipeIngredientLine[]
   steps: RecipeStep[]
   quickStepsText: string
@@ -231,7 +229,6 @@ export function ImportFromUrlSheet({
       source: meta.source,
       portions: meta.portions,
       category,
-      mealRoles: mealRolesFromCategory(category),
       lines,
       steps,
       quickStepsText: stepDescriptions.join('\n'),
@@ -492,7 +489,6 @@ export function ImportFromUrlSheet({
               }
             : null
         }
-        zClass="z-[55]"
         onClose={() => setStubLineIndex(null)}
         onSaved={(ing) => {
           const index = stubLineIndex

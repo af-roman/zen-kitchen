@@ -41,7 +41,7 @@ function isTechnique(value: string | undefined): value is PreparationTechnique {
   return value != null && TECHNIQUE_IDS.has(value)
 }
 
-/** Meal-role category, with legacy dish-type fallback. */
+/** Dish category, with legacy dish-type fallback. */
 export function recipeCategory(recipe: {
   category?: string
 }): DishCategory {

@@ -1,5 +1,5 @@
 import { addDays, format, parseISO } from 'date-fns'
-import type { MealRole, MealSlot } from '@/domain/types'
+import type { DishCategory, MealSlot } from '@/domain/types'
 import { patternForMeal } from './patterns'
 import { eatByDate, emptyDraft, scoreDraft } from './score'
 import { draftShoppingLines } from './shopping'
@@ -38,23 +38,29 @@ function poolFromCatalog(catalog: PlannerCatalog): RecipeCandidate[] {
   return catalog.candidates
 }
 
-function hasRole(c: RecipeCandidate, role: MealRole): boolean {
-  return c.mealRoles.includes(role)
+function hasCategory(c: RecipeCandidate, category: DishCategory): boolean {
+  return c.category === category
 }
 
-/** Fallback roles when the catalog is thin. */
-function roleFallback(role: MealRole): MealRole[] {
-  switch (role) {
-    case 'pickle':
-      return ['pickle', 'side', 'main']
-    case 'side':
-      return ['side', 'main', 'pickle']
-    case 'soup':
-      return ['soup', 'main']
+/** Nearby categories when the catalog has nothing in the requested one. */
+function categoryFallback(category: DishCategory): DishCategory[] {
+  switch (category) {
     case 'staple':
       return ['staple', 'main']
-    default:
+    case 'soup':
+      return ['soup', 'main']
+    case 'main':
       return ['main', 'side']
+    case 'side':
+      return ['side', 'sauce', 'snack', 'main']
+    case 'sauce':
+      return ['sauce', 'side', 'snack']
+    case 'snack':
+      return ['snack', 'side', 'dessert']
+    case 'dessert':
+      return ['dessert', 'snack', 'side']
+    default:
+      return ['other', 'main', 'side']
   }
 }
 
@@ -64,7 +70,7 @@ type Supply = {
   cookDate: string
   fridgeDays: number
   isStaple: boolean
-  roles: MealRole[]
+  category: DishCategory
   eatBy: string
 }
 
@@ -98,9 +104,9 @@ function buildOneDraft(
     return b
   }
 
-  /** Count pattern slots by role for a cook window. */
-  function roleDemand(windowDays: string[]): Map<MealRole, number> {
-    const demand = new Map<MealRole, number>()
+  /** Count pattern slots by dish category for a cook window. */
+  function roleDemand(windowDays: string[]): Map<DishCategory, number> {
+    const demand = new Map<DishCategory, number>()
     for (const _date of windowDays) {
       for (const meal of meals) {
         const pattern = patternForMeal(meal, prefs.mealPatterns)
@@ -129,12 +135,12 @@ function buildOneDraft(
     const dishes: WeekDraftDish[] = []
     const picked = new Set<number>()
 
-    const pickForRole = (role: MealRole, portions: number) => {
+    const pickForRole = (role: DishCategory, portions: number) => {
       if (portions <= 0) return
-      const order = roleFallback(role)
+      const order = categoryFallback(role)
       let from: RecipeCandidate[] = []
       for (const r of order) {
-        from = pool.filter((c) => hasRole(c, r) && !picked.has(c.recipeId))
+        from = pool.filter((c) => hasCategory(c, r) && !picked.has(c.recipeId))
         if (from.length) break
       }
       if (!from.length) {
@@ -154,8 +160,8 @@ function buildOneDraft(
         left: portions,
         cookDate,
         fridgeDays: choice.fridgeDays,
-        isStaple: choice.isStaple || hasRole(choice, 'staple'),
-        roles: choice.mealRoles,
+        isStaple: choice.isStaple,
+        category: choice.category,
         eatBy: eatByDate(cookDate, choice.fridgeDays),
       })
     }
@@ -164,7 +170,8 @@ function buildOneDraft(
     const stapleNeed = demand.get('staple') ?? 0
     const soupNeed = demand.get('soup') ?? 0
     const mainNeed = demand.get('main') ?? 0
-    const sideNeed = (demand.get('side') ?? 0) + (demand.get('pickle') ?? 0)
+    const sideNeed = demand.get('side') ?? 0
+    const sauceNeed = demand.get('sauce') ?? 0
 
     if (stapleNeed > 0) pickForRole('staple', Math.max(stapleNeed, Math.ceil(stapleNeed * 0.5) + 1))
     if (soupNeed > 0) pickForRole('soup', Math.max(2, soupNeed))
@@ -175,7 +182,20 @@ function buildOneDraft(
     if (sideNeed > 0) {
       pickForRole('side', Math.max(2, Math.ceil(sideNeed * 0.55)))
       pickForRole('side', Math.max(1, Math.ceil(sideNeed * 0.45)))
-      if ((demand.get('pickle') ?? 0) > 0) pickForRole('pickle', Math.max(1, demand.get('pickle')!))
+    }
+    if (sauceNeed > 0) pickForRole('sauce', Math.max(1, sauceNeed))
+    for (const [category, count] of demand) {
+      if (count <= 0) continue
+      if (
+        category === 'staple' ||
+        category === 'soup' ||
+        category === 'main' ||
+        category === 'side' ||
+        category === 'sauce'
+      ) {
+        continue
+      }
+      pickForRole(category, Math.max(1, count))
     }
 
     // Ensure at least one dish if patterns asked for nothing weird
@@ -196,15 +216,15 @@ function buildOneDraft(
 
   function pickSupplyForRole(
     date: string,
-    role: MealRole,
+    role: DishCategory,
     respectGap: boolean,
   ): Supply | undefined {
     let best: Supply | undefined
     let bestScore = -Infinity
-    const fallbacks = roleFallback(role)
+    const fallbacks = categoryFallback(role)
     for (const s of supplies) {
       if (s.left <= 0 || !canEat(s, date)) continue
-      const roleOk = fallbacks.some((r) => s.roles.includes(r))
+      const roleOk = fallbacks.some((r) => s.category === r)
       if (!roleOk && role !== 'main') continue
       if (respectGap) {
         const last = lastDateByRecipe.get(s.recipeId)
@@ -214,7 +234,7 @@ function buildOneDraft(
       }
       const urgency = 10 - Math.min(10, daysApart(s.eatBy, date))
       const taste = tasteWeight(s.recipeId, loadRecipeTaste())
-      const roleMatch = s.roles.includes(role) ? 3 : 0
+      const roleMatch = s.category === role ? 3 : 0
       const score = s.left + urgency * 2 + roleMatch + taste
       if (score > bestScore) {
         bestScore = score
@@ -233,10 +253,10 @@ function buildOneDraft(
 
   function pickTransformForRole(
     date: string,
-    role: MealRole,
+    role: DishCategory,
   ): { supply: Supply; transform: RecipeCandidate } | undefined {
     const transforms = catalog.candidates.filter(
-      (c) => c.repurposesFromRecipeIds.length > 0 && hasRole(c, role),
+      (c) => c.repurposesFromRecipeIds.length > 0 && hasCategory(c, role),
     )
     if (transforms.length === 0) return undefined
 
@@ -271,8 +291,8 @@ function buildOneDraft(
       const usedInMeal = new Set<number>()
 
       for (const slot of pattern.slots) {
-        // Leftover transforms fill main/side/pickle roles first when available.
-        if (slot.role === 'main' || slot.role === 'side' || slot.role === 'pickle') {
+        // Leftover transforms fill the plate around rice and soup.
+        if (slot.role !== 'staple' && slot.role !== 'soup') {
           const tr = pickTransformForRole(date, slot.role)
           if (tr && !usedInMeal.has(tr.transform.recipeId)) {
             tr.supply.left -= 1

@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { useEffect } from 'react'
 import { ModalOverlay } from './modalOverlay'
 import { useBodyScrollLock } from './scrollLock'
 import { Button } from './ui'
@@ -10,31 +9,19 @@ export function Sheet({
   onClose,
   children,
   wide,
-  zClass,
 }: {
   open: boolean
   title: string
   onClose: () => void
   children: ReactNode
   wide?: boolean
-  /** Stack above another open sheet. */
-  zClass?: string
 }) {
   useBodyScrollLock(open)
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
 
   if (!open) return null
 
   return (
-    <ModalOverlay zClass={zClass} onDismiss={onClose}>
+    <ModalOverlay onDismiss={onClose}>
       <div
         data-scroll-lock-allow
         className={`pointer-events-auto relative z-10 max-h-[min(92dvh,calc(100dvh-2rem))] w-full overflow-y-auto overscroll-contain rounded-[1.75rem] bg-paper-elevated shadow-card ${

@@ -68,8 +68,8 @@ export function sessionShortfalls(
     if (buy <= 0) continue
     lines.push({
       ingredientId,
-      need: Math.round(need * 10) / 10,
-      have: Math.round(have * 10) / 10,
+      need: Math.round(need * 100) / 100,
+      have: Math.round(have * 100) / 100,
       buy,
       packs:
         ing?.packSize && ing.packSize > 0
@@ -179,8 +179,8 @@ export function horizonShortfalls(
     if (buy <= 0) continue
     lines.push({
       ingredientId,
-      need: Math.round(need * 10) / 10,
-      have: Math.round(have * 10) / 10,
+      need: Math.round(need * 100) / 100,
+      have: Math.round(have * 100) / 100,
       buy,
       packs:
         ing?.packSize && ing.packSize > 0

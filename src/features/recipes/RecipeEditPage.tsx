@@ -6,24 +6,30 @@ import {
   DISH_CATEGORIES,
   EFFORT_LEVELS,
   INGREDIENT_CATEGORIES,
+  MEAL_SLOTS,
   PREPARATION_TECHNIQUES,
   type DishCategory,
   type Effort,
+  type MealSlot,
   type MeasureUnit,
   type PreparationTechnique,
   type Recipe,
+  type EatenShare,
   type RecipeIngredientLine,
   type RecipeKind,
   type RecipeStep,
 } from '@/domain/types'
+import { EATEN_SHARE_OPTIONS, eatenShareOf, eatenShareOption } from '@/domain/eatenShare'
 import { recipeKindOf, uid } from '@/domain/kitchen'
 import { recipeCategory, recipeTechnique } from '@/domain/dishTaxonomy'
+import { defaultSuitableMeals, suitableMealsFor } from '@/domain/mealSuitability'
 import { readRecipeStorageDays, recipeStorageFields, recipeStorageOptions } from '@/domain/storage'
 import {
   allowedMeasureUnits,
   canUseMeasureUnit,
   fromStockAmount,
   isSpoonUnit,
+  amountEntry,
   measureUnitOf,
   toStockAmount,
 } from '@/domain/measures'
@@ -41,6 +47,8 @@ import { RecipeStorageFields } from '@/shared/RecipeStoragePanel'
 import { groupRecipeSteps, recipeTips, DEFAULT_SUBRECIPE, ensureStepGroups } from '@/domain/recipeMath'
 import { normalizeYoutubeUrl } from '@/domain/youtube'
 import { SearchPickerSheet } from '@/shared/SearchPickerSheet'
+import { Sheet } from '@/shared/Sheet'
+import { SwipeReveal } from '@/shared/SwipeReveal'
 import { appAlert, appPrompt } from '@/shared/dialog'
 import { Checkbox, NumberField, SelectField } from '@/shared/forms'
 import { AutoTextarea, Button, Field, PageHeader, RemoveButton, inputClass } from '@/shared/ui'
@@ -79,6 +87,8 @@ export function RecipeEditPage() {
   const [yieldIngredientId, setYieldIngredientId] = useState(0)
   const [yieldAmount, setYieldAmount] = useState(0)
   const [category, setCategory] = useState<DishCategory>('other')
+  const [suitableMeals, setSuitableMeals] = useState<MealSlot[]>(defaultSuitableMeals('other'))
+  const [includesStaple, setIncludesStaple] = useState(false)
   const [technique, setTechnique] = useState<PreparationTechnique>('other')
   const [effort, setEffort] = useState<Effort>('easy')
   const [portions, setPortions] = useState(4)
@@ -95,6 +105,7 @@ export function RecipeEditPage() {
   const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({})
   /** null = closed; 'add' = append; number = replace line at index */
   const [ingredientPicker, setIngredientPicker] = useState<'add' | number | null>(null)
+  const [eatenPicker, setEatenPicker] = useState<number | null>(null)
   /** New recipes start simple; edit always uses the full form. */
   const [advanced, setAdvanced] = useState(!isNew)
   const [quickStepsText, setQuickStepsText] = useState('')
@@ -197,6 +208,21 @@ export function RecipeEditPage() {
     setSteps(next)
   }
 
+  /** Swap a step with its neighbor in the same subrecipe. */
+  function moveStepInSubrecipe(stepId: string, direction: -1 | 1) {
+    const current = ensureStepGroups(steps)
+    const index = current.findIndex((step) => step.id === stepId)
+    if (index < 0) return
+    const neighbor = index + direction
+    if (neighbor < 0 || neighbor >= current.length) return
+    const group = current[index]!.group?.trim() || DEFAULT_SUBRECIPE
+    if ((current[neighbor]!.group?.trim() || DEFAULT_SUBRECIPE) !== group) return
+    const next = [...current]
+    next[index] = current[neighbor]!
+    next[neighbor] = current[index]!
+    setSteps(next)
+  }
+
   const subrecipeNames = useMemo(() => {
     const names: string[] = []
     const seen = new Set<string>()
@@ -223,7 +249,10 @@ export function RecipeEditPage() {
     setRecipeKind(recipeKindOf(existing))
     setYieldIngredientId(existing.yieldIngredientId ?? ingredients[0]?.id ?? 0)
     setYieldAmount(existing.yieldAmount ?? 0)
-    setCategory(recipeCategory(existing))
+    const category = recipeCategory(existing)
+    setCategory(category)
+    setSuitableMeals(suitableMealsFor({ category, suitableMeals: existing.suitableMeals }))
+    setIncludesStaple(existing.includesStaple === true)
     setTechnique(recipeTechnique(existing))
     setEffort(existing.effort)
     setPortions(existing.portions)
@@ -299,6 +328,10 @@ export function RecipeEditPage() {
       yieldIngredientId: isPrep ? yieldIngredientId : undefined,
       yieldAmount: isPrep ? yieldAmount : undefined,
       category,
+      includesStaple: !isPrep && includesStaple ? true : undefined,
+      suitableMeals: isPrep
+        ? undefined
+        : MEAL_SLOTS.map((slot) => slot.id).filter((id) => suitableMeals.includes(id)),
       technique,
       effort,
       portions,
@@ -310,11 +343,13 @@ export function RecipeEditPage() {
         const ing = ingredients.find((i) => i.id === line.ingredientId)!
         const measureUnit = measureUnitOf(line, ing)
         const daysAhead = stageOfLine(line)
+        const eatenShare = eatenShareOf(line.eatenShare)
         return {
           ingredientId: line.ingredientId,
           amount: line.amount,
           measureUnit: measureUnit === ing.unit ? undefined : measureUnit,
           daysAhead: daysAhead > 0 ? daysAhead : undefined,
+          eatenShare: eatenShare === 'all' ? undefined : eatenShare,
         }
       }),
       steps: orderStepsByStage(normalizedSteps.filter((s) => s.description.trim())).map((s) => {
@@ -442,7 +477,13 @@ export function RecipeEditPage() {
               />
             </Field>
             <Field label={`Yield amount (${yieldIng?.unit ?? 'unit'})`}>
-              <NumberField value={yieldAmount} min={0} step={1} onChange={setYieldAmount} />
+              <NumberField
+                value={yieldAmount}
+                min={0}
+                step={amountEntry(yieldIng?.unit).fractions ? 0.25 : 1}
+                fractions={amountEntry(yieldIng?.unit).fractions}
+                onChange={setYieldAmount}
+              />
             </Field>
             <p className="col-span-2 text-xs text-ink-muted">
               When you finish cooking, this amount (scaled by batches) is added to the pantry as
@@ -457,16 +498,11 @@ export function RecipeEditPage() {
                 <SelectField
                   title={isPrep ? 'Category' : 'Dish category'}
                   value={category}
-                  onChange={setCategory}
+                  onChange={(next) => {
+                    setCategory(next)
+                    setSuitableMeals(defaultSuitableMeals(next))
+                  }}
                   options={DISH_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))}
-                />
-              </Field>
-              <Field label="Technique">
-                <SelectField
-                  title="Technique"
-                  value={technique}
-                  onChange={setTechnique}
-                  options={PREPARATION_TECHNIQUES.map((t) => ({ id: t.id, label: t.label }))}
                 />
               </Field>
               <Field label="Effort">
@@ -489,10 +525,67 @@ export function RecipeEditPage() {
             />
           </Field>
         </div>
+        {!isPrep ? (
+          <>
+            <div>
+              <p className="mb-1 text-sm text-ink-muted">Suitable meals</p>
+              <div className="flex flex-wrap gap-2">
+                {MEAL_SLOTS.map((slot) => {
+                  const on = suitableMeals.includes(slot.id)
+                  return (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        setSuitableMeals((current) =>
+                          current.includes(slot.id)
+                            ? current.filter((meal) => meal !== slot.id)
+                            : [...current, slot.id],
+                        )
+                      }
+                      className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                        on ? 'bg-lacquer text-white' : 'bg-paper-elevated text-ink-muted shadow-card'
+                      }`}
+                    >
+                      {slot.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-1 text-xs text-ink-muted">
+                A main starts as lunch and dinner. Turn breakfast on only for dishes you eat then.
+                The planner leaves a meal empty when nothing is marked for it.
+              </p>
+            </div>
+            <Checkbox
+              checked={includesStaple}
+              onChange={setIncludesStaple}
+              label="This dish already includes a staple"
+              hint="Rice or noodles are part of the dish, as in donburi or curry. Planning will not add a separate staple beside it."
+            />
+            <Field label="Technique">
+              <SelectField
+                title="Technique"
+                value={technique}
+                onChange={setTechnique}
+                options={PREPARATION_TECHNIQUES.map((item) => ({ id: item.id, label: item.label }))}
+              />
+            </Field>
+            <p className="-mt-2 text-xs text-ink-muted">
+              The planner avoids a day, or several days, of the same method. Fried methods count as one.
+              Soup and rice are exempt.
+            </p>
+          </>
+        ) : null}
 
         <section>
-          <h2 className="mb-2 text-lg">Ingredients</h2>
-          <div className="space-y-2">
+          <h2 className="mb-1 text-lg">Ingredients</h2>
+          <p className="mb-2 text-xs text-ink-muted">
+            The amount is what leaves the pantry. Tap the line under an ingredient when only some of
+            it is eaten.
+          </p>
+          <ul className="space-y-3">
             {lines.map((line, idx) => {
               const ing = ingredients.find((i) => i.id === line.ingredientId)
               const measure = measureUnitOf(line, ing)
@@ -500,30 +593,37 @@ export function RecipeEditPage() {
               const displayAmount = ing
                 ? fromStockAmount(line.amount, measure, ing)
                 : line.amount
+              const entry = amountEntry(measure)
+              const category = ing
+                ? (INGREDIENT_CATEGORIES.find((c) => c.id === ing.category)?.label ?? ing.category)
+                : null
               return (
-                <div key={idx} className="space-y-1">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                    <button
-                      type="button"
-                      onClick={() => setIngredientPicker(idx)}
-                      className={`${inputClass} flex w-full min-w-0 flex-1 flex-col justify-center text-left`}
-                    >
-                      <span className="block truncate font-medium">
-                        {ing?.name ?? 'Choose ingredient'}
-                      </span>
-                      <span className="block text-xs text-ink-muted">
-                        {ing
-                          ? `${INGREDIENT_CATEGORIES.find((c) => c.id === ing.category)?.label ?? ing.category} · tap to change`
-                          : 'Tap to search'}
-                      </span>
-                    </button>
-                    <div className="flex w-full min-w-0 items-stretch gap-2 sm:w-80 sm:shrink-0">
-                      <NumberField
-                        className="min-w-0 flex-1"
-                        value={displayAmount}
-                        min={0}
-                        step={0.1}
-                        onChange={(measureAmount) => {
+                <li key={`${line.ingredientId}-${idx}`}>
+                  <SwipeReveal
+                    actionLabel={`Remove ${ing?.name ?? 'ingredient'}`}
+                    onAction={() => setLines(lines.filter((_, i) => i !== idx))}
+                  >
+                    <div className="meal-tile space-y-3 px-3 py-3 pr-11">
+                      <button
+                        type="button"
+                        onClick={() => setIngredientPicker(idx)}
+                        className="block w-full min-w-0 text-left"
+                      >
+                        <span className="block truncate text-base font-semibold leading-snug">
+                          {ing?.name ?? 'Choose ingredient'}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-ink-muted">
+                          {category ? `${category} · tap to change` : 'Tap to search'}
+                        </span>
+                      </button>
+                      <div className="flex items-stretch gap-2">
+                        <NumberField
+                          className="min-w-0 flex-1"
+                          value={displayAmount}
+                          min={0}
+                          step={entry.step}
+                          fractions={entry.fractions}
+                          onChange={(measureAmount) => {
                             if (!ing) return
                             const next = [...lines]
                             try {
@@ -537,78 +637,86 @@ export function RecipeEditPage() {
                               /* ignore while typing invalid spoon without density */
                             }
                           }}
-                      />
-                      <div className="w-24 shrink-0">
-                        <SelectField
-                          title="Unit"
-                          compact
-                          value={measure}
-                          onChange={async (nextMeasure) => {
-                            if (!ing) return
-                            const shown = fromStockAmount(line.amount, measure, ing)
-                            const next = [...lines]
-                            try {
-                              next[idx] = {
-                                ...line,
-                                amount: toStockAmount(shown, nextMeasure, ing),
-                                measureUnit: nextMeasure === ing.unit ? undefined : nextMeasure,
+                        />
+                        <div className="w-24 shrink-0">
+                          <SelectField
+                            title="Unit"
+                            value={measure}
+                            onChange={async (nextMeasure) => {
+                              if (!ing) return
+                              const shown = fromStockAmount(line.amount, measure, ing)
+                              const next = [...lines]
+                              try {
+                                next[idx] = {
+                                  ...line,
+                                  amount: toStockAmount(shown, nextMeasure, ing),
+                                  measureUnit: nextMeasure === ing.unit ? undefined : nextMeasure,
+                                }
+                                setLines(next)
+                              } catch (err) {
+                                await appAlert(
+                                  err instanceof Error ? err.message : 'Cannot convert unit',
+                                )
                               }
-                              setLines(next)
-                            } catch (err) {
-                              await appAlert(err instanceof Error ? err.message : 'Cannot convert unit')
-                            }
-                          }}
-                          options={measureOptions.map((u) => ({ id: u, label: u }))}
-                        />
+                            }}
+                            options={measureOptions.map((u) => ({ id: u, label: u }))}
+                          />
+                        </div>
                       </div>
-                      <RemoveButton
-                        icon
-                        className="h-auto min-h-10 self-stretch"
-                        onClick={() => setLines(lines.filter((_, i) => i !== idx))}
-                      />
+                      {!quickMode && multiStage ? (
+                        <div className="flex items-center gap-2 text-xs text-ink-muted">
+                          <span>Needed</span>
+                          <div className="w-40">
+                            <SelectField<number>
+                              title="When needed"
+                              compact
+                              value={stageOfLine(line)}
+                              onChange={(daysAhead) => {
+                                const next = [...lines]
+                                next[idx] = {
+                                  ...line,
+                                  daysAhead: daysAhead > 0 ? daysAhead : undefined,
+                                }
+                                setLines(next)
+                              }}
+                              options={stagesPresent.map((d) => ({
+                                id: d,
+                                label: stageLabel(d),
+                              }))}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
+                      {ing && measure !== ing.unit && !isSpoonUnit(measure) ? (
+                        <p className="text-xs text-ink-muted">
+                          Stock: {line.amount} {ing.unit}
+                        </p>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setEatenPicker(idx)}
+                        className={`text-left text-xs ${
+                          eatenShareOf(line.eatenShare) === 'all'
+                            ? 'text-ink-muted'
+                            : 'font-medium text-ink'
+                        }`}
+                      >
+                        {eatenShareOption(line.eatenShare).label}
+                      </button>
                     </div>
-                  </div>
-                  {!quickMode && multiStage ? (
-                    <div className="flex items-center gap-2 text-xs text-ink-muted">
-                      <span>Needed</span>
-                      <div className="w-40">
-                        <SelectField<number>
-                          title="When needed"
-                          compact
-                          value={stageOfLine(line)}
-                          onChange={(daysAhead) => {
-                            const next = [...lines]
-                            next[idx] = {
-                              ...line,
-                              daysAhead: daysAhead > 0 ? daysAhead : undefined,
-                            }
-                            setLines(next)
-                          }}
-                          options={stagesPresent.map((d) => ({
-                            id: d,
-                            label: stageLabel(d),
-                          }))}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-                  {ing && measure !== ing.unit && !isSpoonUnit(measure) ? (
-                    <p className="text-xs text-ink-muted">
-                      Stock: {line.amount} {ing.unit}
-                    </p>
-                  ) : null}
-                </div>
+                  </SwipeReveal>
+                </li>
               )
             })}
-            <Button
-              variant="secondary"
-              className="w-full"
-              disabled={ingredients.length === 0}
-              onClick={() => setIngredientPicker('add')}
-            >
-              Add ingredient
-            </Button>
-          </div>
+          </ul>
+          <Button
+            variant="secondary"
+            className="mt-3 w-full"
+            disabled={ingredients.length === 0}
+            onClick={() => setIngredientPicker('add')}
+          >
+            Add ingredient
+          </Button>
         </section>
 
         {!quickMode ? (
@@ -665,9 +773,9 @@ export function RecipeEditPage() {
         <section>
           <h2 className="mb-2 text-lg">Steps</h2>
           <p className="mb-3 text-xs text-ink-muted">
-            Every step belongs to a named subrecipe (rice, sauce, garnish…). Set “When” on the
-            subrecipe for work that happens on an earlier day — planning the cook then also books a
-            prep session for it.
+            Every step belongs to a named subrecipe (rice, sauce, garnish…). Earlier and Later change
+            the order inside that subrecipe. Set “When” on the subrecipe for work that happens on an
+            earlier day — planning the cook then also books a prep session for it.
           </p>
           {multiStage ? (
             <p className="mb-3 rounded-[var(--radius-card)] border border-line bg-ink/[0.03] px-3 py-2 text-xs text-ink-muted">
@@ -750,17 +858,42 @@ export function RecipeEditPage() {
                   const stepGroup = step.group?.trim() || DEFAULT_SUBRECIPE
                   return (
                     <div key={step.id} className="rounded-lg border border-line bg-paper-elevated p-3">
-                      <Field label={`${displayName} · step ${localIdx + 1}`}>
-                        <AutoTextarea
-                          minRows={2}
-                          value={step.description}
-                          onChange={(e) => {
-                            const next = [...steps]
-                            next[idx] = { ...step, description: e.target.value }
-                            setSteps(next)
-                          }}
-                        />
-                      </Field>
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-ink-muted">
+                          {displayName} · step {localIdx + 1}
+                        </span>
+                        {section.steps.length > 1 ? (
+                          <span className="flex shrink-0 gap-1">
+                            <button
+                              type="button"
+                              aria-label="Move this step earlier"
+                              disabled={localIdx === 0}
+                              onClick={() => moveStepInSubrecipe(step.id, -1)}
+                              className="rounded-full px-2.5 py-1 text-xs font-semibold text-ink-muted transition hover:bg-ink/5 hover:text-ink disabled:opacity-30"
+                            >
+                              Earlier
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Move this step later"
+                              disabled={localIdx === section.steps.length - 1}
+                              onClick={() => moveStepInSubrecipe(step.id, 1)}
+                              className="rounded-full px-2.5 py-1 text-xs font-semibold text-ink-muted transition hover:bg-ink/5 hover:text-ink disabled:opacity-30"
+                            >
+                              Later
+                            </button>
+                          </span>
+                        ) : null}
+                      </div>
+                      <AutoTextarea
+                        minRows={2}
+                        value={step.description}
+                        onChange={(e) => {
+                          const next = [...steps]
+                          next[idx] = { ...step, description: e.target.value }
+                          setSteps(next)
+                        }}
+                      />
                       <div className="mt-2">
                         <Field label="Subrecipe" hint="Move this step into another part of the cook.">
                           <SelectField<string>
@@ -823,8 +956,8 @@ export function RecipeEditPage() {
                         label="Requires timer"
                       />
                       {step.requiresTimer ? (
-                        <div className="mt-2 flex gap-2">
-                          <div className="w-36">
+                        <div className="mt-2 flex items-stretch gap-2">
+                          <div className="w-48 shrink-0">
                             <NumberField
                               value={step.timerDuration ?? 0}
                               min={0}
@@ -964,9 +1097,9 @@ export function RecipeEditPage() {
           <section className="space-y-2">
             <h2 className="text-lg">Leftover transforms</h2>
             <p className="text-sm text-ink-muted">
-              This dish can use leftovers from the selected cooks (e.g. onigiri from teriyaki
-              chicken). The week planner may schedule it the next day instead of repeating the
-              same dish.
+              This dish can use leftovers from the selected cooks (for example onigiri from teriyaki
+              chicken). On the last keep day, the planner may serve it instead of repeating that dish.
+              List only the new ingredients here, not the leftover itself.
             </p>
             <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
               {allRecipes
@@ -1019,6 +1152,51 @@ export function RecipeEditPage() {
         </Button>
       </div>
 
+      <Sheet
+        open={eatenPicker != null}
+        title="How much is eaten?"
+        onClose={() => setEatenPicker(null)}
+      >
+        <p className="mb-3 text-sm text-ink-muted">
+          Nutrition uses this share. The pantry and the shopping list still use the full amount.
+        </p>
+        <ul className="space-y-1">
+          {EATEN_SHARE_OPTIONS.map((option) => {
+            const active =
+              eatenPicker != null &&
+              eatenShareOf(lines[eatenPicker]?.eatenShare) === option.id
+            return (
+              <li key={option.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (eatenPicker == null) return
+                    const share: EatenShare = option.id
+                    const next = [...lines]
+                    const line = next[eatenPicker]
+                    if (!line) return
+                    next[eatenPicker] = {
+                      ...line,
+                      eatenShare: share === 'all' ? undefined : share,
+                    }
+                    setLines(next)
+                    setEatenPicker(null)
+                  }}
+                  className={`flex w-full flex-col rounded-lg border px-3 py-2.5 text-left transition ${
+                    active
+                      ? 'border-ink/40 bg-ink/5 text-ink'
+                      : 'border-line bg-paper hover:border-ink/30'
+                  }`}
+                >
+                  <span className="text-sm font-medium">{option.label}</span>
+                  <span className="text-xs text-ink-muted">{option.detail}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </Sheet>
+
       <SearchPickerSheet
         open={ingredientPicker != null}
         title={ingredientPicker === 'add' ? 'Add ingredient' : 'Change ingredient'}
@@ -1043,7 +1221,10 @@ export function RecipeEditPage() {
             setDescription(draft.description)
             setSource(draft.source)
             setPortions(draft.portions)
-            if (draft.category) setCategory(draft.category)
+            if (draft.category) {
+              setCategory(draft.category)
+              setSuitableMeals(defaultSuitableMeals(draft.category))
+            }
             setLines(draft.lines)
             setSteps(draft.steps)
             setQuickStepsText(draft.quickStepsText)

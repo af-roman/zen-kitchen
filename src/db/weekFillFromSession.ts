@@ -1,6 +1,7 @@
 import { db } from '@/db/database'
 import { applyWeekFillAssignments } from '@/db/weekFillOps'
 import { todayISO } from '@/domain/kitchen'
+import { loadPlannerPrefs } from '@/domain/weekPlanner/prefs'
 import {
   defaultFillFromDate,
   planWeekFill,
@@ -27,11 +28,13 @@ export async function weekFillFromSessionId(
   }
 
   const today = todayISO()
+  const prefs = loadPlannerPrefs()
   const fromDate = defaultFillFromDate(session.date, today)
   const assignments = planWeekFill(sources, {
     fromDate,
     dayCount: opts?.dayCount ?? 5,
-    varietyGapDays: 1,
+    meals: prefs.meals,
+    varietyGapDays: prefs.varietyGapDays,
   })
   const result = await applyWeekFillAssignments(assignments, recipeById, ingById)
   return { ...result, assignmentCount: assignments.length }

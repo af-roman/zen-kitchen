@@ -49,7 +49,7 @@ export function deriveWeekJourney(input: {
       primary: {
         kind: 'plan',
         label: 'Plan my week',
-        to: '/plan-week?autogen=1',
+        to: '/plan-week',
       },
     }
   }
@@ -106,7 +106,7 @@ export function deriveWeekJourney(input: {
     primary: {
       kind: 'replan',
       label: 'Plan my week',
-      to: '/plan-week?autogen=1',
+      to: '/plan-week',
     },
   }
 }

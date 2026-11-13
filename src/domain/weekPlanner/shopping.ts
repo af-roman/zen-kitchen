@@ -42,7 +42,7 @@ export function draftShoppingLines(
     if (buy <= 0) continue
     lines.push({
       ingredientId,
-      need: Math.round(need * 10) / 10,
+      need: Math.round(need * 100) / 100,
       buy,
       packs:
         meta?.packSize && meta.packSize > 0

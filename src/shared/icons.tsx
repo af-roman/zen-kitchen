@@ -225,6 +225,15 @@ export function IconLog(props: IconProps) {
   )
 }
 
+export function IconGuide(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 6.5c-1.6-1-3.4-1.5-5.5-1.5H5v13h1.5c2 0 3.8.5 5.5 1.5 1.7-1 3.5-1.5 5.5-1.5H19v-13h-1.5c-2.1 0-3.9.5-5.5 1.5z" />
+      <path d="M12 6.5v13" />
+    </Icon>
+  )
+}
+
 export function IconNotebook(props: IconProps) {
   return (
     <Icon {...props}>

@@ -9,8 +9,7 @@
     "build:pages": "VITE_BASE_PATH=/zen-kitchen/ npm run build && cp dist/index.html dist/404.html",
     "preview:pages": "npm run build:pages && vite preview --base /zen-kitchen/",
     "lint": "oxlint",
-    "preview": "vite preview",
-    "seed:build": "node scripts/build-seed-catalog.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

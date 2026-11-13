@@ -1,4 +1,5 @@
 import type { MeasureUnit, Unit } from '@/domain/types'
+import { parseAmountInput } from '@/domain/amountInput'
 
 export type ParsedIngredientLine = {
   raw: string
@@ -49,6 +50,13 @@ const UNIT_ALIASES: Record<string, MeasureUnit> = {
   グラム: 'g',
 }
 
+const AMOUNT =
+  String.raw`(?:\d+\s+\d+\/\d+|\d+\/\d+|[⅛¼⅓⅜½⅝⅔¾⅞]|\d+(?:[.,]\d+)?)`
+
+function readAmount(token: string): number | null {
+  return parseAmountInput(token)
+}
+
 function stockUnitFor(measure: MeasureUnit): Unit {
   if (measure === 'tsp' || measure === 'tbsp') return 'ml'
   return measure
@@ -79,24 +87,26 @@ export function parseIngredientLine(raw: string): ParsedIngredientLine {
   const cleaned = raw.replace(/\s+/g, ' ').trim()
   if (!cleaned) return { raw, parsed: false, name: '' }
 
-  let m = cleaned.match(/^(大さじ|小さじ)\s*(\d+(?:\.\d+)?)\s*(.+)$/)
+  let m = cleaned.match(new RegExp(`^(大さじ|小さじ)\\s*(${AMOUNT})\\s*(.+)$`))
   if (m) {
     const unit = resolveUnit(m[1]!)
-    const amount = Number(m[2])
+    const amount = readAmount(m[2]!)
     const name = m[3]!.trim()
-    if (unit && name && Number.isFinite(amount)) return ok(raw, amount, unit, name)
+    if (unit && name && amount != null) return ok(raw, amount, unit, name)
   }
 
   m = cleaned.match(
-    /^(\d+(?:\.\d+)?)\s*(g|grams?|ml|milliliters?|millilitres?|l|liters?|litres?|tsp|teaspoons?|tbsp|tablespoons?|pcs?|pieces?|cloves?|大さじ|小さじ|個|本|枚|グラム)\b[ \t]*(?:of[ \t]+)?(.+)$/i,
+    new RegExp(
+      `^(${AMOUNT})\\s*(g|grams?|ml|milliliters?|millilitres?|l|liters?|litres?|tsp|teaspoons?|tbsp|tablespoons?|pcs?|pieces?|cloves?|大さじ|小さじ|個|本|枚|グラム)\\b[ \\t]*(?:of[ \\t]+)?(.+)$`,
+      'i',
+    ),
   )
   if (m) {
     const unitToken = m[2]!
-    const amount = Number(m[1])
+    const amount = readAmount(m[1]!)
     const name = m[3]!.trim()
-    if (name && Number.isFinite(amount)) {
+    if (name && amount != null) {
       if (/^l$/i.test(unitToken) || /^liters?$/i.test(unitToken) || /^litres?$/i.test(unitToken)) {
-        // Keep liters as ml measure (display in ml).
         return ok(raw, amount * 1000, 'ml', name)
       }
       const unit = resolveUnit(unitToken)
@@ -104,11 +114,11 @@ export function parseIngredientLine(raw: string): ParsedIngredientLine {
     }
   }
 
-  m = cleaned.match(/^(\d+(?:\.\d+)?)\s+(.+)$/)
+  m = cleaned.match(new RegExp(`^(${AMOUNT})\\s+(.+)$`))
   if (m) {
-    const amount = Number(m[1])
+    const amount = readAmount(m[1]!)
     const name = m[2]!.trim()
-    if (name && Number.isFinite(amount)) return ok(raw, amount, 'pcs', name)
+    if (name && amount != null) return ok(raw, amount, 'pcs', name)
   }
 
   return { raw, parsed: false, name: cleaned }

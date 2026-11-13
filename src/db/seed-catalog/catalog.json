@@ -1268,6 +1268,8 @@
       "tips": [],
       "recipeKind": "dish",
       "category": "main",
+      "includesStaple": true,
+      "allowedPatterns": ["simple", "ichiju_sansai"],
       "technique": "simmered",
       "effort": "easy",
       "portions": 2,

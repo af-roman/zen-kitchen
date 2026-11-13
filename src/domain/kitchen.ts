@@ -37,7 +37,7 @@ export function formatQuantity(
 export function prepYieldAmount(recipe: Recipe, cookScale: number): number {
   const base = recipe.yieldAmount ?? 0
   const scale = cookScale / Math.max(1, recipe.portions)
-  return Math.round(base * scale * 10) / 10
+  return Math.round(base * scale * 100) / 100
 }
 
 export function expiryFromCook(cookedAt: string, storageDays: number): string {

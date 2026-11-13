@@ -13,6 +13,7 @@ import {
 } from '@/domain/types'
 import { isAlwaysAvailable, todayISO, uid } from '@/domain/kitchen'
 import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
+import { amountEntry, formatStockAmount } from '@/domain/measures'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
@@ -457,7 +458,9 @@ export function ShoppingPage() {
                               </div>
                               <div className="mt-1 flex flex-wrap gap-1.5 text-sm text-ink-muted">
                                 <span>
-                                  {item.amount || '—'} {ing?.unit}
+                                  {item.amount
+                                    ? `${formatStockAmount(item.amount, ing?.unit)} ${ing?.unit ?? ''}`
+                                    : '—'}
                                 </span>
                                 <span>·</span>
                                 <span>{item.brand || 'No brand'}</span>
@@ -498,12 +501,15 @@ export function ShoppingPage() {
                     <span>{r.totalCost.toFixed(0)} Kč</span>
                   </div>
                   <ul className="mt-1 text-sm text-ink-muted">
-                    {r.lines.map((line, idx) => (
+                    {r.lines.map((line, idx) => {
+                      const lineIng = ingById.get(line.ingredientId)
+                      return (
                       <li key={idx}>
-                        {ingById.get(line.ingredientId)?.name} · {line.amount}{' '}
-                        {ingById.get(line.ingredientId)?.unit} · {line.brand || '—'}
+                        {lineIng?.name} · {formatStockAmount(line.amount, lineIng?.unit)}{' '}
+                        {lineIng?.unit} · {line.brand || '—'}
                       </li>
-                    ))}
+                      )
+                    })}
                   </ul>
                   {r.notes ? (
                     <p className="mt-1 text-xs text-ink-muted">{r.notes}</p>
@@ -620,7 +626,13 @@ function ShoppingListItemSheet({
         </Field>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Field label={`Amount (${unit})`}>
-            <NumberField value={amount} min={0} step={1} onChange={setAmount} />
+            <NumberField
+              value={amount}
+              min={0}
+              step={amountEntry(unit).fractions ? 0.25 : 1}
+              fractions={amountEntry(unit).fractions}
+              onChange={setAmount}
+            />
           </Field>
           <Field label="Price (Kč)">
             <NumberField value={cost} min={0} step={1} onChange={setCost} />
@@ -913,7 +925,8 @@ function RestockSheet({
                   <NumberField
                     value={line.amount}
                     min={0}
-                    step={1}
+                    step={amountEntry(unit).fractions ? 0.25 : 1}
+                    fractions={amountEntry(unit).fractions}
                     onChange={(amount) => {
                       const next = [...lines]
                       next[idx] = { ...line, amount }

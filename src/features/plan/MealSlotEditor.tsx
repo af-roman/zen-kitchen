@@ -28,9 +28,11 @@ import {
   nutritionForAmount,
   scaleNutrition,
 } from '@/domain/nutrition'
+import { recipeCategory } from '@/domain/dishTaxonomy'
 import { recipeNutrition } from '@/domain/recipeMath'
 import { isPrepLeg } from '@/domain/stages'
 import { isPrepRecipe, uid } from '@/domain/kitchen'
+import { amountEntry, formatStockAmount } from '@/domain/measures'
 import { pantryCandidatesForIngredient } from '@/domain/pantryOrder'
 import { maxStorageDays } from '@/domain/storage'
 import {
@@ -269,6 +271,21 @@ export function MealSlotEditor({
 
   const draftKcal = mealNutritionFromItems(previewItems, recipeById, ingById).energyKcal
 
+  const plateWarning = useMemo(() => {
+    const recipes = previewItems.flatMap((item) => {
+      if (item.recipeId == null) return []
+      const recipe = recipeById.get(item.recipeId)
+      return recipe ? [recipe] : []
+    })
+    if (recipes.length === 0) return null
+    const bowl = recipes.find((recipe) => recipe.includesStaple && recipeCategory(recipe) !== 'staple')
+    const staple = recipes.find((recipe) => recipeCategory(recipe) === 'staple')
+    if (bowl && staple) {
+      return `${bowl.name} already includes a staple, and this plate also has ${staple.name}. You can still save it.`
+    }
+    return null
+  }, [previewItems, recipeById])
+
   useEffect(() => {
     onDraftChange?.(meal, previewItems)
   }, [meal, previewItems, onDraftChange])
@@ -410,6 +427,7 @@ export function MealSlotEditor({
         {mealAlreadyPlanned ? (
           <WarnBanner>Saving replaces this meal.</WarnBanner>
         ) : null}
+        {plateWarning ? <WarnBanner>{plateWarning}</WarnBanner> : null}
         {missingDishLabels.length > 0 ? (
           <WarnBanner>
             {missingDishLabels.join(', ')} no longer has food behind it. Saving this meal drops{' '}
@@ -822,7 +840,7 @@ function AdhocFoodSheet({
                               ? [{ id: 0, label: 'No stock' }]
                               : candidates.map((c) => ({
                                   id: c.id!,
-                                  label: `${c.brand || 'Unbranded'} · ${c.amountLeft} ${ing?.unit}${
+                                  label: `${c.brand || 'Unbranded'} · ${formatStockAmount(c.amountLeft, ing?.unit)} ${ing?.unit}${
                                     c.expiryDate ? ` · exp ${c.expiryDate}` : ''
                                   }`,
                                 }))
@@ -833,7 +851,8 @@ function AdhocFoodSheet({
                         <NumberField
                           value={line.amountUsed}
                           min={0}
-                          step={0.1}
+                          step={amountEntry(ing?.unit).fractions ? 0.25 : 0.1}
+                          fractions={amountEntry(ing?.unit).fractions}
                           max={pantry.find((p) => p.id === line.pantryItemId)?.amountLeft ?? undefined}
                           onChange={(amountUsed) => {
                             const next = [...usage]

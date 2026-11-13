@@ -13,6 +13,7 @@ import {
 } from 'date-fns'
 import { Sheet } from '@/shared/Sheet'
 import { Button, inputClass } from '@/shared/ui'
+import { formatAmount, isPartialAmount, parseAmountInput } from '@/domain/amountInput'
 
 export type SelectOption<T extends string | number = string> = {
   id: T
@@ -155,6 +156,31 @@ export function Checkbox({
   )
 }
 
+function decimalPlaces(step: number): number {
+  if (!(step > 0) || step >= 1) return 0
+  const text = step.toString()
+  const dot = text.indexOf('.')
+  return dot < 0 ? 0 : Math.min(3, text.length - dot - 1)
+}
+
+/** Allow a decimal, or a fraction such as 1/2 and 1 1/2, while it is being typed. */
+function amountDraftOk(raw: string, decimals: number, fractions: boolean): boolean {
+  const text = raw.trim()
+  if (text === '') return true
+  const decimal = decimals > 0 ? `^\\d*\\.?\\d{0,${decimals}}$` : '^\\d*$'
+  if (new RegExp(decimal).test(text)) return true
+  if (!fractions) return false
+  return (
+    /^\d+\/$/.test(text) ||
+    /^\d+\/\d+$/.test(text) ||
+    /^\d+\s+\d*$/.test(text) ||
+    /^\d+\s+\d+\/$/.test(text) ||
+    /^\d+\s+\d+\/\d+$/.test(text) ||
+    /^[⅛¼⅓⅜½⅝⅔¾⅞]$/.test(text) ||
+    /^\d+\s*[⅛¼⅓⅜½⅝⅔¾⅞]$/.test(text)
+  )
+}
+
 /** Number field with − / + steppers (no native spinner). */
 export function NumberField({
   value,
@@ -162,6 +188,7 @@ export function NumberField({
   min,
   max,
   step = 1,
+  fractions = false,
   className = '',
   disabled,
   inputMode = 'decimal',
@@ -172,13 +199,15 @@ export function NumberField({
   min?: number
   max?: number
   step?: number
+  /** Accept 1/2, 1 1/4, and show values that way. For spoons and pieces. */
+  fractions?: boolean
   className?: string
   disabled?: boolean
   inputMode?: 'decimal' | 'numeric'
   /** Narrow control: the value box fits a short number, not a full-width field. */
   compact?: boolean
 }) {
-  const decimals = step > 0 && step < 1 ? 1 : 0
+  const decimals = decimalPlaces(step)
   const [draft, setDraft] = useState<string | null>(null)
   const focused = useRef(false)
 
@@ -190,13 +219,13 @@ export function NumberField({
   }
 
   function roundToStep(n: number) {
-    if (decimals > 0) return Math.round(n * 10) / 10
-    return Math.round(n)
+    const factor = 10 ** decimals
+    return Math.round(n * factor) / factor
   }
 
   function formatValue(n: number) {
     if (!Number.isFinite(n)) return ''
-    return String(roundToStep(n))
+    return formatAmount(roundToStep(n), fractions, decimals)
   }
 
   useEffect(() => {
@@ -204,19 +233,21 @@ export function NumberField({
   }, [value])
 
   function commit(raw: string) {
-    if (raw === '' || raw === '.') {
+    const trimmed = raw.trim()
+    if (trimmed === '') {
       onChange(clamp(min ?? 0))
       return
     }
-    const n = Number(raw)
-    if (!Number.isFinite(n)) return
+    if (isPartialAmount(trimmed)) return
+    const n = parseAmountInput(trimmed)
+    if (n == null) return
     onChange(clamp(roundToStep(n)))
   }
 
   function bump(delta: number) {
     const raw = Number.isFinite(value) ? value : 0
     const next = clamp(Math.round((raw + delta) / step) * step)
-    const rounded = decimals > 0 ? Math.round(next * 10) / 10 : next
+    const rounded = roundToStep(next)
     setDraft(null)
     onChange(rounded)
   }
@@ -225,7 +256,7 @@ export function NumberField({
 
   const buttonClass = compact
     ? 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-base text-ink transition hover:border-ink/40 disabled:opacity-40'
-    : 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40'
+    : 'inline-flex w-12 shrink-0 items-center justify-center self-stretch rounded-2xl border border-line bg-paper text-lg text-ink transition hover:border-ink/40 disabled:opacity-40'
 
   return (
     <div
@@ -244,11 +275,11 @@ export function NumberField({
         className={
           compact
             ? `${inputClass} h-8 !w-10 shrink-0 !px-0 text-center text-sm tabular-nums`
-            : `${inputClass} h-10 min-w-0 flex-1 basis-0 !w-auto px-2 text-center tabular-nums`
+            : `${inputClass} min-w-[4.5rem] flex-1 basis-[4.5rem] px-2 text-center tabular-nums`
         }
         size={compact ? 3 : 8}
         type="text"
-        inputMode={inputMode}
+        inputMode={fractions ? 'text' : inputMode}
         disabled={disabled}
         value={shown}
         onFocus={() => {
@@ -259,9 +290,8 @@ export function NumberField({
           setDraft(null)
         }}
         onChange={(e) => {
-          const raw = e.target.value.trim().replace(',', '.')
-          const pattern = decimals > 0 ? /^\d*\.?\d{0,1}$/ : /^\d*$/
-          if (raw !== '' && !pattern.test(raw)) return
+          const raw = e.target.value.replace(/,/g, '.')
+          if (raw !== '' && !amountDraftOk(raw, decimals, fractions)) return
           setDraft(raw)
           commit(raw)
         }}

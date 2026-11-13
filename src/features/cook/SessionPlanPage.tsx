@@ -12,6 +12,8 @@ import {
   todayISO,
 } from '@/domain/kitchen'
 import { isPastDate } from '@/domain/servings'
+import { formatAmount } from '@/domain/amountInput'
+import { usesFineAmount } from '@/domain/measures'
 import { appAlert } from '@/shared/dialog'
 import { reservedIngredientUsage, stockTotals } from '@/domain/recipeMath'
 import { addShortfallsToShopping, sessionShortfalls } from '@/db/shoppingOps'
@@ -407,14 +409,16 @@ export function SessionPlanPage() {
                 <li key={n.ingredientId} className="flex items-center justify-between text-sm">
                   <span>{n.ing?.name}</span>
                   <span className="flex flex-wrap items-center justify-end gap-2">
-                    {Math.round(n.amount * 10) / 10} {n.ing?.unit}
+                    {formatAmount(n.amount, usesFineAmount(n.ing?.unit), 2)} {n.ing?.unit}
                     <Badge tone={n.short ? 'warn' : 'ok'}>
-                      {n.always ? 'always available' : `avail ${Math.round(n.have * 10) / 10}`}
+                      {n.always
+                        ? 'always available'
+                        : `avail ${formatAmount(n.have, usesFineAmount(n.ing?.unit), 2)}`}
                     </Badge>
                     {!n.always && n.reservedAmt > 0 ? (
                       <span className="text-xs text-ink-muted">
-                        (stock {Math.round(n.onHand * 10) / 10} − reserved{' '}
-                        {Math.round(n.reservedAmt * 10) / 10})
+                        (stock {formatAmount(n.onHand, usesFineAmount(n.ing?.unit), 2)} − reserved{' '}
+                        {formatAmount(n.reservedAmt, usesFineAmount(n.ing?.unit), 2)})
                       </span>
                     ) : null}
                   </span>

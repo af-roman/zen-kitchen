@@ -2,7 +2,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useState } from 'react'
 import { db } from '@/db/database'
-import { EFFORT_LEVELS } from '@/domain/types'
+import { EFFORT_LEVELS, MEAL_SLOTS } from '@/domain/types'
+import { suitableMealsFor } from '@/domain/mealSuitability'
 import { dishCategoryLabel, recipeTechnique, techniqueLabel } from '@/domain/dishTaxonomy'
 import {
   formatQuantity,
@@ -11,6 +12,7 @@ import {
   prepYieldAmount,
   recipePortionsAvailable,
 } from '@/domain/kitchen'
+import { eatenShareOf, eatenShareOption } from '@/domain/eatenShare'
 import { formatRecipeAmount, measureUnitOf } from '@/domain/measures'
 import { recipeNutrition, stockTotals, groupRecipeSteps } from '@/domain/recipeMath'
 import {
@@ -195,6 +197,12 @@ export function RecipeDetailPage() {
           {prep ? <Badge tone="accent">Prep</Badge> : null}
           {staged ? <Badge tone="accent">{leadTimeLabel(lead)}</Badge> : null}
           <Badge>{dishCategoryLabel(r.category)}</Badge>
+          {!prep
+            ? suitableMealsFor(r).map((meal) => (
+                <Badge key={meal}>{MEAL_SLOTS.find((slot) => slot.id === meal)?.label ?? meal}</Badge>
+              ))
+            : null}
+          {!prep && r.includesStaple ? <Badge>Includes a staple</Badge> : null}
           <Badge tone="accent">{EFFORT_LEVELS.find((e) => e.id === r.effort)?.label}</Badge>
           <Badge tone={avail.cookable ? 'ok' : 'warn'}>
             {avail.available}/{avail.needed} in pantry
@@ -305,6 +313,11 @@ export function RecipeDetailPage() {
                   {staged && stageOfLine(line) > 0 ? (
                     <span className="block text-xs text-ink-muted">
                       {stageLabel(stageOfLine(line))}
+                    </span>
+                  ) : null}
+                  {eatenShareOf(line.eatenShare) !== 'all' ? (
+                    <span className="block text-xs text-ink-muted">
+                      {eatenShareOption(line.eatenShare).short} · pantry still uses the full amount
                     </span>
                   ) : null}
                 </span>

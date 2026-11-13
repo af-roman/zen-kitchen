@@ -39,7 +39,7 @@ Cross-device sync is **full-kitchen JSON snapshots** (same shape as Backup expor
 
 ## UX priorities (when improving the app)
 
-Primary nav: **Week · Shop · Stock · Recipes · Kitchen** (Pantry under Stock/Kitchen). Week home is the autopilot hub (next action + meal tiles → Plan my week / shop / cook / serve). Prefer week-fill after sessions and shopping from shortfalls before AI features. Meal patterns (一汁三菜 / bento) fill each slot from the recipe dish category.
+Primary nav: **Week · Shop · Stock · Recipes · Kitchen** (Pantry under Stock/Kitchen). Week home is the autopilot hub (next action + meal tiles → Plan my week / shop / cook / serve). The week planner asks for a start day and cook evenings, then fills meals toward the calorie, protein, carb, and fat targets together, with as few dishes as possible. Soup and sides are added only when they move the day closer. Calories cannot be planned past the leeway. A dish marked as already including a staple is not served with a second rice or noodle dish. A main, soup, side, or staple is lunch and dinner unless its meal pills say otherwise; snack and dessert start as breakfast and snack. The planner does not fill a meal with a dish that is not marked for it. Keep-by starts the morning after an evening cook.
 
 ## Commands
 

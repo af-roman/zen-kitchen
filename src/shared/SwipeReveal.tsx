@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { IconTrash } from '@/shared/icons'
 
 const ACTION_PX = 56
 
 /**
  * Slides a row left to reveal a trailing action.
- * Touch: swipe left. Fine pointer: hover. A quiet control stays tappable
- * without either gesture, and the action stays in the tab order.
+ * Touch: swipe left. Mouse: the corner × reveals the action; it does not open on hover.
  */
 export function SwipeReveal({
   children,
@@ -20,9 +19,6 @@ export function SwipeReveal({
   const [open, setOpen] = useState(false)
   const [offset, setOffset] = useState(0)
   const [dragging, setDragging] = useState(false)
-  const [hovering, setHovering] = useState(false)
-  const [focused, setFocused] = useState(false)
-  const [fineHover, setFineHover] = useState(false)
   const drag = useRef<{
     id: number
     x: number
@@ -32,24 +28,16 @@ export function SwipeReveal({
   } | null>(null)
   const suppressClick = useRef(false)
 
-  useEffect(() => {
-    const mq = window.matchMedia('(hover: hover) and (pointer: fine)')
-    const update = () => setFineHover(mq.matches)
-    update()
-    mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
-  }, [])
-
-  const revealed = open || focused || (fineHover && hovering)
-  const translate = dragging ? offset : revealed ? -ACTION_PX : 0
+  const translate = dragging ? offset : open ? -ACTION_PX : 0
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'mouse') return
     if ((event.target as HTMLElement).closest('[data-reveal-action]')) return
     drag.current = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      start: revealed ? -ACTION_PX : 0,
+      start: open ? -ACTION_PX : 0,
       axis: null,
     }
   }
@@ -101,12 +89,6 @@ export function SwipeReveal({
       onPointerMove={onPointerMove}
       onPointerUp={finishPointer}
       onPointerCancel={finishPointer}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
-      onFocus={() => setFocused(true)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node)) setFocused(false)
-      }}
       onClickCapture={(event) => {
         if (suppressClick.current) {
           suppressClick.current = false
@@ -130,15 +112,16 @@ export function SwipeReveal({
         <button
           type="button"
           data-reveal-action
-          aria-label={actionLabel}
-          title={actionLabel}
-          tabIndex={revealed ? -1 : 0}
+          aria-label={open ? 'Hide delete' : 'Show delete'}
+          title={open ? 'Hide delete' : 'Show delete'}
+          tabIndex={open ? -1 : 0}
           className={`absolute top-1.5 right-1.5 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full text-ink-muted/80 transition hover:bg-danger/10 hover:text-danger ${
-            revealed ? 'pointer-events-none opacity-0' : ''
+            open ? 'pointer-events-none opacity-0' : ''
           }`}
           onClick={(event) => {
             event.stopPropagation()
-            onAction()
+            setOpen(true)
+            setOffset(-ACTION_PX)
           }}
         >
           <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden>

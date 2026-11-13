@@ -1,145 +1,158 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { addDays, format, parseISO, startOfWeek } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/database'
 import { acceptWeekDraft } from '@/db/weekPlannerOps'
-import { MEAL_SLOTS, mealSlotIndex, type MealSlot } from '@/domain/types'
+import { MEAL_SLOTS, mealSlotIndex, type MealSlot, type Nutrition } from '@/domain/types'
 import { todayISO } from '@/domain/kitchen'
 import {
-  MEAL_PATTERN_OPTIONS,
+  adjustServingPortions,
   buildPlannerCatalog,
-  changeServingPortions,
+  cookChoiceDates,
   generateWeekDraft,
-  improveWeekDraft,
   loadPlannerPrefs,
-  resolveRecipeShortlist,
   savePlannerPrefs,
-  swapServingRecipes,
-  type MealPatternId,
+  suggestCookDates,
   type PlannerPrefs,
   type WeekDraft,
+  type WeekDraftServing,
 } from '@/domain/weekPlanner'
 import { addNutrition, emptyNutrition, scaleNutrition } from '@/domain/nutrition'
-import type { Nutrition } from '@/domain/types'
 import { useGoals } from '@/shared/hooks'
 import { appAlert, appConfirm } from '@/shared/dialog'
 import { Checkbox, DateField, NumberField, SelectField } from '@/shared/forms'
 import { IconCheck, IconSpark } from '@/shared/icons'
-import { Badge, Button, EmptyState, Field, PageHeader, WarnBanner } from '@/shared/ui'
+import { Button, EmptyState, Field, PageHeader, WarnBanner } from '@/shared/ui'
 import { MacroRings } from '@/shared/MacroBar'
 
-function plateNutrition(
+function dayNutrition(
   items: { recipeId: number; portions: number }[],
   byId: Map<number, { nutritionPerPortion: Nutrition }>,
 ): Nutrition {
   let total = emptyNutrition()
   for (const item of items) {
-    const cand = byId.get(item.recipeId)
-    if (!cand) continue
-    total = addNutrition(total, scaleNutrition(cand.nutritionPerPortion, item.portions))
+    const candidate = byId.get(item.recipeId)
+    if (!candidate) continue
+    total = addNutrition(total, scaleNutrition(candidate.nutritionPerPortion, item.portions))
   }
   return total
 }
 
 export function WeekPlannerPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const goals = useGoals()
   const recipes = useLiveQuery(() => db.recipes.toArray(), []) ?? []
   const ingredients = useLiveQuery(() => db.ingredients.toArray(), []) ?? []
   const pantry = useLiveQuery(() => db.pantryItems.toArray(), []) ?? []
+  const readyBatches = useLiveQuery(() => db.readyBatches.toArray(), []) ?? []
 
   const [prefs, setPrefs] = useState<PlannerPrefs>(() => loadPlannerPrefs())
   const [draft, setDraft] = useState<WeekDraft | null>(null)
   const [busy, setBusy] = useState(false)
-  const [showAdjust, setShowAdjust] = useState(false)
-  const [shortlistSource, setShortlistSource] = useState<'ai' | 'local' | 'none' | null>(null)
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [didAutogen, setDidAutogen] = useState(false)
+  const [showMore, setShowMore] = useState(false)
 
-  const recipeById = useMemo(() => new Map(recipes.map((r) => [r.id!, r])), [recipes])
-  const ingById = useMemo(() => new Map(ingredients.map((i) => [i.id!, i])), [ingredients])
+  const recipeById = useMemo(() => new Map(recipes.map((recipe) => [recipe.id!, recipe])), [recipes])
+  const ingById = useMemo(() => new Map(ingredients.map((ingredient) => [ingredient.id!, ingredient])), [ingredients])
 
   useEffect(() => {
     savePlannerPrefs(prefs)
   }, [prefs])
 
-  const baseCatalog = useMemo(
+  const catalog = useMemo(
     () =>
       buildPlannerCatalog({
         recipes,
         ingredients,
         pantry,
+        readyBatches,
         goals,
         seed: Date.now() % 1_000_000,
       }),
-    [recipes, ingredients, pantry, goals],
+    [recipes, ingredients, pantry, readyBatches, goals],
   )
   const nutritionByRecipe = useMemo(
-    () => new Map(baseCatalog.candidates.map((c) => [c.recipeId, c])),
-    [baseCatalog],
+    () => new Map(catalog.candidates.map((candidate) => [candidate.recipeId, candidate])),
+    [catalog],
   )
 
-  async function generate(improve: boolean) {
-    if (baseCatalog.candidates.length === 0) {
+  function updatePrefs(next: PlannerPrefs) {
+    setPrefs(next)
+    setDraft(null)
+  }
+
+  function toggleMeal(meal: MealSlot) {
+    updatePrefs({
+      ...prefs,
+      meals: (() => {
+        const has = prefs.meals.includes(meal)
+        const meals = MEAL_SLOTS.map((slot) => slot.id).filter((id) =>
+          id === meal ? !has : prefs.meals.includes(id),
+        )
+        return meals.length === 0 ? prefs.meals : meals
+      })(),
+    })
+  }
+
+  function toggleCook(date: string) {
+    const has = prefs.cookDates.includes(date)
+    const cookDates = has
+      ? prefs.cookDates.filter((cook) => cook !== date)
+      : [...prefs.cookDates, date].sort()
+    updatePrefs({ ...prefs, cookDates })
+  }
+
+  function setWeekStart(weekStartDate: string) {
+    updatePrefs({
+      ...prefs,
+      weekStartDate,
+      cookDates: suggestCookDates(weekStartDate, prefs.dayCount).filter((date) => date >= todayISO()),
+    })
+  }
+
+  function setDayCount(dayCount: number) {
+    updatePrefs({
+      ...prefs,
+      dayCount,
+      cookDates: suggestCookDates(prefs.weekStartDate, dayCount).filter((date) => date >= todayISO()),
+    })
+  }
+
+  async function generate() {
+    if (catalog.candidates.length === 0) {
       await appAlert('Add some dish recipes first.', { title: 'Nothing to plan' })
+      return
+    }
+    if (prefs.cookDates.length === 0 && catalog.ready.length === 0) {
+      await appAlert('Choose at least one evening you can cook.', { title: 'No cook day' })
       return
     }
     setBusy(true)
     try {
-      const { ids, source } = await resolveRecipeShortlist(prefs, baseCatalog, false)
-      setShortlistSource(source)
-      const catalog = {
-        ...baseCatalog,
-        shortlistIds: ids,
-        seed: (Date.now() % 1_000_000) + Math.floor(Math.random() * 1000),
-      }
-      let next = generateWeekDraft(prefs, catalog, 14)
-      if (improve) next = improveWeekDraft(next, catalog, 100)
-      setDraft(next)
-      setSelectedKey(null)
+      setDraft(generateWeekDraft(prefs, { ...catalog, seed: Date.now() % 1_000_000 }))
     } finally {
       setBusy(false)
     }
   }
 
-  // Autogen when arriving from Plan CTA
-  useEffect(() => {
-    if (didAutogen) return
-    if (searchParams.get('autogen') !== '1') return
-    if (recipes.length === 0) return
-    setDidAutogen(true)
-    void generate(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, recipes.length, didAutogen])
-
-  async function accept(mode: 'fill' | 'replace') {
+  async function accept() {
     if (!draft) return
-    const message =
-      mode === 'fill'
-        ? `Fill empty meal slots only. Meals that already have food stay as they are. Create ${draft.sessions.length} cook session(s) and merge shopping?`
-        : `Replace meals in this date range. Planned cook sessions on those days are removed and rewritten. Active or finished cooks stay.`
-    if (
-      !(await appConfirm(message, {
-        confirmLabel: mode === 'fill' ? 'Fill empty slots' : 'Replace these days',
-        danger: mode === 'replace',
-      }))
-    ) {
-      return
-    }
+    const cookLabel = draft.sessions.map((session) => format(parseISO(session.date), 'EEE d')).join(', ')
+    const confirmed = await appConfirm(
+      cookLabel
+        ? `Replace meals from ${format(parseISO(draft.prefs.weekStartDate), 'EEE d')} for ${draft.prefs.dayCount} days. Cook evenings: ${cookLabel}.`
+        : `Replace meals from ${format(parseISO(draft.prefs.weekStartDate), 'EEE d')} using food already cooked.`,
+      { confirmLabel: 'Use this plan' },
+    )
+    if (!confirmed) return
     setBusy(true)
     try {
-      const result = await acceptWeekDraft(draft, recipes, ingredients, mode)
-      const skipped =
-        result.mealsSkipped > 0 ? ` Left alone: ${result.mealsSkipped}.` : ''
-      const blocked =
-        result.mealsBlocked > 0 ? ` Blocked by a cook already underway: ${result.mealsBlocked}.` : ''
-      const removed =
-        result.sessionsRemoved > 0 ? ` Planned sessions replaced: ${result.sessionsRemoved}.` : ''
+      const result = await acceptWeekDraft(draft, recipes, ingredients)
+      const cleared = result.mealsCleared > 0 ? ` Cleared: ${result.mealsCleared}.` : ''
+      const blocked = result.mealsBlocked > 0 ? ` Blocked by a cook already underway: ${result.mealsBlocked}.` : ''
       await appAlert(
-        `Sessions: ${result.sessionsCreated}.${removed} Meals written: ${result.mealsWritten}.${skipped}${blocked} Shop lines: ${result.shopAdded + result.shopUpdated}.`,
-        { title: mode === 'fill' ? 'Empty slots filled' : 'Days replaced' },
+        `Sessions: ${result.sessionsCreated}. Meals written: ${result.mealsWritten}.${cleared}${blocked} Shop lines: ${result.shopAdded + result.shopUpdated}.`,
+        { title: 'Plan saved' },
       )
       navigate('/week')
     } finally {
@@ -147,289 +160,181 @@ export function WeekPlannerPage() {
     }
   }
 
-  function toggleMeal(meal: MealSlot) {
-    setPrefs((p) => {
-      const has = p.meals.includes(meal)
-      const meals = MEAL_SLOTS.map((slot) => slot.id).filter((id) =>
-        id === meal ? !has : p.meals.includes(id),
-      )
-      if (meals.length === 0) return p
-      return { ...p, meals }
-    })
-  }
-
-  function setWeekStart(date: string) {
-    const monday = format(startOfWeek(parseISO(date), { weekStartsOn: 1 }), 'yyyy-MM-dd')
-    setPrefs((p) => ({ ...p, weekStartDate: monday }))
-  }
-
-  function setPattern(meal: MealSlot, id: MealPatternId) {
-    setPrefs((p) => ({
-      ...p,
-      mealPatterns: { ...p.mealPatterns, [meal]: id },
-    }))
-  }
-
   const days = useMemo(() => {
     if (!draft) return [] as string[]
-    return Array.from({ length: draft.prefs.dayCount }, (_, i) =>
-      format(addDays(parseISO(draft.prefs.weekStartDate), i), 'yyyy-MM-dd'),
+    return Array.from({ length: draft.prefs.dayCount }, (_, index) =>
+      format(addDays(parseISO(draft.prefs.weekStartDate), index), 'yyyy-MM-dd'),
     )
   }, [draft])
 
-  function servingKey(s: {
-    date: string
-    meal: MealSlot
-    recipeId: number
-    cookDate: string
-    fromRecipeId?: number
-    role?: string
-  }) {
-    return `${s.date}|${s.meal}|${s.recipeId}|${s.cookDate}|${s.fromRecipeId ?? ''}|${s.role ?? ''}`
-  }
+  const choiceDates = cookChoiceDates(prefs.weekStartDate, prefs.dayCount)
+  const today = todayISO()
 
-  function servingLabel(s: { recipeId: number; fromRecipeId?: number }): string {
-    const name = recipeById.get(s.recipeId)?.name ?? `Recipe ${s.recipeId}`
-    if (s.fromRecipeId == null) return name
-    const from = recipeById.get(s.fromRecipeId)?.name
-    return from ? `${name} (from ${from})` : name
+  function servingLabel(serving: WeekDraftServing): string {
+    const name = recipeById.get(serving.recipeId)?.name ?? `Recipe ${serving.recipeId}`
+    if (serving.fromRecipeId != null) {
+      const source = recipeById.get(serving.fromRecipeId)?.name
+      return source ? `${name} (from ${source})` : name
+    }
+    return name
   }
-
-  function onSelectServing(key: string) {
-    if (!draft) return
-    if (!selectedKey) {
-      setSelectedKey(key)
-      return
-    }
-    if (selectedKey === key) {
-      setSelectedKey(null)
-      return
-    }
-    const a = draft.servings.find((s) => servingKey(s) === selectedKey)
-    const b = draft.servings.find((s) => servingKey(s) === key)
-    if (a && b) {
-      setDraft(swapServingRecipes(draft, a, b, baseCatalog))
-    }
-    setSelectedKey(null)
-  }
-
-  const prefsSummary = useMemo(() => {
-    const mealBits = [...prefs.meals].sort((a, b) => mealSlotIndex(a) - mealSlotIndex(b)).map((m) => {
-      const label = MEAL_SLOTS.find((x) => x.id === m)?.label ?? m
-      const pat = prefs.mealPatterns?.[m]
-      const patLabel = MEAL_PATTERN_OPTIONS.find((p) => p.id === pat)?.label ?? pat ?? 'simple'
-      return `${label}: ${patLabel}`
-    })
-    return mealBits.join(' · ')
-  }, [prefs])
 
   return (
     <div>
       <PageHeader
         title="Plan my week"
-        subtitle={prefsSummary || 'Lunch & dinner · batch cooks'}
-        actions={
-          <Button variant="secondary" onClick={() => navigate('/week')}>
-            Back
-          </Button>
-        }
+        subtitle="Pick the first day you want to eat, and the evenings you can cook."
       />
 
-      <section className="card-elevated mb-6 p-5">
-        <div className="flex flex-col gap-3">
-          <Button
-            className="w-full gap-2"
-            disabled={busy}
-            onClick={() => void generate(true)}
-          >
-            <IconSpark className="h-4 w-4" />
-            {busy ? 'Planning…' : draft ? 'Regenerate' : 'Generate week'}
-          </Button>
-          <Button variant="ghost" className="w-full" onClick={() => setShowAdjust((v) => !v)}>
-            {showAdjust ? 'Hide options' : 'Adjust options'}
-          </Button>
+      <section className="card-elevated mb-4 space-y-4 p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="First day of meals">
+            <DateField value={prefs.weekStartDate} onChange={setWeekStart} />
+          </Field>
+          <Field label="Days">
+            <NumberField value={prefs.dayCount} min={3} max={14} step={1} onChange={setDayCount} />
+          </Field>
         </div>
-
-        {showAdjust ? (
-          <div className="mt-4 space-y-3 border-t border-line pt-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Week start (Mon)">
-                <DateField title="Week start" value={prefs.weekStartDate} onChange={setWeekStart} />
-              </Field>
-              <Field label="Days">
-                <NumberField
-                  value={prefs.dayCount}
-                  min={3}
-                  max={14}
-                  step={1}
-                  onChange={(dayCount) => setPrefs((p) => ({ ...p, dayCount }))}
-                />
-              </Field>
-              <Field label="Batch cook sessions">
-                <NumberField
-                  value={prefs.batchCookCount}
-                  min={1}
-                  max={4}
-                  step={1}
-                  onChange={(batchCookCount) => setPrefs((p) => ({ ...p, batchCookCount }))}
-                />
-              </Field>
-              <Field label="Macro tolerance (±%)">
-                <NumberField
-                  value={prefs.macroTolerancePct}
-                  min={5}
-                  max={40}
-                  step={1}
-                  onChange={(macroTolerancePct) => setPrefs((p) => ({ ...p, macroTolerancePct }))}
-                />
-              </Field>
-              <Field label="Variety gap (days)">
-                <SelectField<number>
-                  title="Variety gap"
-                  value={prefs.varietyGapDays}
-                  onChange={(varietyGapDays) => setPrefs((p) => ({ ...p, varietyGapDays }))}
-                  options={[
-                    { id: 0, label: 'Allow same day next' },
-                    { id: 1, label: 'No consecutive days' },
-                    { id: 2, label: 'Skip 1 day' },
-                  ]}
-                />
-              </Field>
-            </div>
-            <div>
-              <p className="mb-1 text-sm text-ink-muted">Meals to fill</p>
-              <div className="flex flex-wrap gap-3">
-                {MEAL_SLOTS.map((m) => (
-                  <Checkbox
-                    key={m.id}
-                    checked={prefs.meals.includes(m.id)}
-                    onChange={() => toggleMeal(m.id)}
-                    label={m.label}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm text-ink-muted">Meal patterns</p>
-              {[...prefs.meals].sort((a, b) => mealSlotIndex(a) - mealSlotIndex(b)).map((meal) => (
-                <Field key={meal} label={MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal}>
-                  <SelectField<MealPatternId>
-                    title="Pattern"
-                    value={prefs.mealPatterns?.[meal] ?? 'simple'}
-                    onChange={(id) => setPattern(meal, id)}
-                    options={MEAL_PATTERN_OPTIONS}
-                  />
-                </Field>
-              ))}
-            </div>
+        <div>
+          <p className="mb-1 text-sm text-ink-muted">Meals to fill</p>
+          <div className="flex flex-wrap gap-3">
+            {MEAL_SLOTS.map((slot) => (
+              <Checkbox
+                key={slot.id}
+                checked={prefs.meals.includes(slot.id)}
+                onChange={() => toggleMeal(slot.id)}
+                label={slot.label}
+              />
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-sm text-ink-muted">Evenings you can cook</p>
+          <p className="mb-2 text-xs text-ink-muted">
+            A dish is eaten from the next morning through its keep-by date. A 3-day dish cooked Sunday
+            lasts through Wednesday.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {choiceDates.map((date) => (
+              <Checkbox
+                key={date}
+                checked={prefs.cookDates.includes(date)}
+                onChange={() => toggleCook(date)}
+                label={format(parseISO(date), 'EEE d MMM')}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Same main may repeat">
+            <SelectField<number>
+              title="Repeat"
+              value={prefs.varietyGapDays}
+              onChange={(varietyGapDays) => updatePrefs({ ...prefs, varietyGapDays })}
+              options={[
+                { id: 0, label: 'The next day' },
+                { id: 1, label: 'After a day off' },
+                { id: 2, label: 'After two days off' },
+              ]}
+            />
+          </Field>
+          <div className="flex items-end pb-1">
             <Checkbox
-              checked={prefs.stapleExtraCadence}
-              onChange={(stapleExtraCadence) => setPrefs((p) => ({ ...p, stapleExtraCadence }))}
-              label="Allow staples (rice etc.) more often"
+              checked={prefs.preferExpiring}
+              onChange={(preferExpiring) => updatePrefs({ ...prefs, preferExpiring })}
+              label="Use food that's about to expire first"
             />
           </div>
+        </div>
+        <button
+          type="button"
+          className="text-sm font-semibold text-ink-muted"
+          onClick={() => setShowMore((open) => !open)}
+        >
+          {showMore ? 'Hide target leeway' : 'Target leeway'}
+        </button>
+        {showMore ? (
+          <Field label="How far from each daily target still counts as close (%)">
+            <NumberField
+              value={prefs.macroTolerancePct}
+              min={5}
+              max={40}
+              step={1}
+              onChange={(macroTolerancePct) => updatePrefs({ ...prefs, macroTolerancePct })}
+            />
+          </Field>
         ) : null}
+        <Button className="w-full gap-2 sm:w-auto" disabled={busy} onClick={() => void generate()}>
+          <IconSpark className="h-4 w-4" />
+          {draft ? 'Regenerate' : 'Generate plan'}
+        </Button>
       </section>
 
       {!draft ? (
         <EmptyState
-          title={busy ? 'Planning…' : 'No draft yet'}
-          body="Generate a week from your recipe catalog. Dinner defaults to 一汁三菜, lunch to bento."
+          title={busy ? 'Planning…' : 'No plan yet'}
+          body="Each meal is one dish, plus a soup or side when that moves the day closer to your targets. Breakfast stays a single dish."
         />
       ) : (
         <>
-          <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-line bg-paper/95 px-4 py-3 backdrop-blur-md sm:-mx-6 sm:px-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                className="w-full shrink-0 gap-2 whitespace-nowrap sm:w-auto sm:min-w-[10rem]"
-                disabled={busy}
-                onClick={() => void accept('fill')}
-              >
-                <IconCheck className="h-4 w-4" />
-                Fill empty slots
-              </Button>
-              <Button
-                variant="secondary"
-                className="shrink-0 gap-1.5 whitespace-nowrap"
-                disabled={busy}
-                onClick={() => void accept('replace')}
-              >
-                Replace these days
-              </Button>
-              <Button
-                variant="secondary"
-                className="shrink-0 gap-1.5 whitespace-nowrap"
-                disabled={busy}
-                onClick={() => void generate(true)}
-              >
-                <IconSpark className="h-4 w-4" />
-                Regenerate
-              </Button>
-              <Button variant="ghost" className="shrink-0 whitespace-nowrap sm:ml-auto" onClick={() => setDraft(null)}>
-                Discard
-              </Button>
-            </div>
-          </div>
-
           <section className="card-elevated mb-4 p-4">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <h2 className="text-lg">Score</h2>
-              <Badge tone="neutral">{draft.score.total}</Badge>
-              {shortlistSource ? (
-                <span className="text-xs text-ink-muted">Shortlist: {shortlistSource}</span>
-              ) : null}
+            <p className="text-sm font-medium text-ink">
+            {`${draft.score.dishes} ${draft.score.dishes === 1 ? 'dish' : 'dishes'} · ${draft.score.cooks} ${draft.score.cooks === 1 ? 'cook evening' : 'cook evenings'}`}
+              {draft.score.daysOver > 0
+                ? ` · ${draft.score.daysOver} day${draft.score.daysOver === 1 ? '' : 's'} over target`
+                : ''}
+            </p>
+            <div className="mt-3">
+              <MacroRings
+                goals={goals}
+                nutrition={draft.avgNutrition}
+                size="lg"
+                caption="Average planned day vs kitchen goals"
+              />
             </div>
-            <MacroRings
-              goals={goals}
-              nutrition={draft.avgNutrition}
-              size="lg"
-              caption="Average planned day vs kitchen goals"
-            />
-            {draft.dayGoalGaps.some((g) => g.offGoal) ? (
-              <ul className="mt-3 space-y-1 text-sm text-ink-muted">
-                {draft.dayGoalGaps
-                  .filter((g) => g.offGoal)
-                  .map((g) => (
-                    <li key={g.date}>{g.summary}</li>
-                  ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-sm text-ink-muted">
-                All filled days within ±{prefs.macroTolerancePct}% of kitchen goals.
-              </p>
-            )}
             {draft.warnings.length > 0 ? (
               <div className="mt-3 space-y-1">
-                {draft.warnings.slice(0, 8).map((w) => (
-                  <WarnBanner key={w}>{w}</WarnBanner>
+                {draft.warnings.slice(0, 8).map((warning) => (
+                  <WarnBanner key={warning}>{warning}</WarnBanner>
                 ))}
               </div>
-            ) : null}
+            ) : (
+              <p className="mt-3 text-sm text-ink-muted">
+                Filled days are within ±{prefs.macroTolerancePct}% of calories, protein, carbs, and fat.
+              </p>
+            )}
           </section>
 
           <section className="card-elevated mb-4 p-4">
-            <h2 className="mb-2 text-lg">Cook days</h2>
-            <ul className="space-y-2">
-              {draft.sessions.map((session) => (
-                <li key={session.date} className="rounded-lg border border-line px-3 py-2">
-                  <div className="font-medium">{format(parseISO(session.date), 'EEE d MMM')}</div>
-                  <ul className="mt-1 text-sm text-ink-muted">
-                    {session.dishes.map((d) => (
-                      <li key={d.recipeId}>
-                        {recipeById.get(d.recipeId)?.name ?? `Recipe ${d.recipeId}`} · {d.portions}{' '}
-                        portions
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
+            <h2 className="mb-2 text-lg">Cook evenings</h2>
+            {draft.sessions.length === 0 ? (
+              <p className="text-sm text-ink-muted">Nothing new to cook. Meals use food already in the fridge.</p>
+            ) : (
+              <ul className="space-y-2">
+                {draft.sessions.map((session) => (
+                  <li key={session.date} className="rounded-lg border border-line px-3 py-2">
+                    <div className="font-medium">
+                      {format(parseISO(session.date), 'EEE d MMM')}
+                      {session.date === today ? ' · today' : ''}
+                    </div>
+                    <ul className="mt-1 text-sm text-ink-muted">
+                      {session.dishes.map((dish) => (
+                        <li key={dish.recipeId}>
+                          {recipeById.get(dish.recipeId)?.name ?? `Recipe ${dish.recipeId}`} · {dish.portions}{' '}
+                          portions
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
           <section className="card-elevated mb-4 p-4">
-            <h2 className="mb-1 text-lg">Plates</h2>
+            <h2 className="mb-1 text-lg">Meals</h2>
             <p className="mb-3 text-xs text-ink-muted">
-              Each meal is a composed plate. Tap two items to swap. Adjust portions with the stepper.
+              Portions change the cook batch. Half portions are for rice, soup, and sides.
             </p>
             <div className="space-y-4">
               {days.map((date) => (
@@ -437,11 +342,11 @@ export function WeekPlannerPage() {
                   <div className="mb-2 flex items-center gap-2">
                     <div className="shrink-0 text-sm font-medium">
                       {format(parseISO(date), 'EEE d MMM')}
-                      {date === todayISO() ? ' · today' : ''}
+                      {date === today ? ' · today' : ''}
                     </div>
                     <MacroRings
-                      nutrition={plateNutrition(
-                        draft.servings.filter((s) => s.date === date),
+                      nutrition={dayNutrition(
+                        draft.servings.filter((serving) => serving.date === date),
                         nutritionByRecipe,
                       )}
                       goals={goals}
@@ -453,84 +358,51 @@ export function WeekPlannerPage() {
                     {[...draft.prefs.meals]
                       .sort((a, b) => mealSlotIndex(a) - mealSlotIndex(b))
                       .map((meal) => {
-                      const items = draft.servings.filter(
-                        (s) => s.date === date && s.meal === meal,
-                      )
-                      const mealLabel = MEAL_SLOTS.find((m) => m.id === meal)?.label ?? meal
-                      const pat = draft.prefs.mealPatterns?.[meal]
-                      const patLabel =
-                        MEAL_PATTERN_OPTIONS.find((p) => p.id === pat)?.label ?? ''
-                      return (
-                        <div
-                          key={meal}
-                          className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-3"
-                        >
-                          <div className="mb-2 flex items-center gap-2">
-                            <div className="min-w-0 shrink">
-                              <span className="font-medium">{mealLabel}</span>
-                              {patLabel ? (
-                                <span className="ml-2 text-xs text-ink-muted">{patLabel}</span>
-                              ) : null}
-                            </div>
-                            <MacroRings
-                              nutrition={plateNutrition(items, nutritionByRecipe)}
-                              goals={goals}
-                              size="xs"
-                              className="min-w-0 flex-1"
-                            />
-                          </div>
-                          {items.length === 0 ? (
-                            <p className="text-sm text-ink-muted">Empty</p>
-                          ) : (
-                            <ul className="space-y-1">
-                              {items.map((s) => {
-                                const key = servingKey(s)
-                                const selected = selectedKey === key
-                                return (
+                        const items = draft.servings.filter((serving) => serving.date === date && serving.meal === meal)
+                        const mealLabel = MEAL_SLOTS.find((slot) => slot.id === meal)?.label ?? meal
+                        return (
+                          <div
+                            key={meal}
+                            className="rounded-[var(--radius-card)] border border-line bg-ink/[0.03] p-3"
+                          >
+                            <p className="mb-2 font-medium">{mealLabel}</p>
+                            {items.length === 0 ? (
+                              <p className="text-sm text-ink-muted">Left open</p>
+                            ) : (
+                              <ul className="space-y-1">
+                                {items.map((serving) => (
                                   <li
-                                    key={key}
-                                    className={`flex flex-nowrap items-center gap-2 rounded-lg border px-2 py-2 sm:px-3 ${
-                                      selected
-                                        ? 'border-lacquer/40 bg-lacquer/5'
-                                        : 'border-line bg-paper'
-                                    }`}
+                                    key={`${serving.date}|${serving.meal}|${serving.recipeId}|${serving.cookDate}|${serving.batchId ?? ''}|${serving.roleLabel ?? ''}`}
+                                    className="flex flex-nowrap items-center gap-2 rounded-lg border border-line bg-paper px-2 py-2 sm:px-3"
                                   >
-                                    <button
-                                      type="button"
-                                      className="min-w-0 flex-1 text-left text-sm"
-                                      onClick={() => onSelectServing(key)}
-                                    >
-                                      {s.roleLabel || s.role ? (
-                                        <span className="text-ink-muted">
-                                          {s.roleLabel ?? s.role}:{' '}
-                                        </span>
+                                    <div className="min-w-0 flex-1 text-sm">
+                                      {serving.roleLabel ? (
+                                        <span className="text-ink-muted">{serving.roleLabel}: </span>
                                       ) : null}
-                                      {servingLabel(s)}
+                                      {servingLabel(serving)}
                                       <span className="block text-xs text-ink-muted">
-                                        {s.fromRecipeId != null ? 'leftover · ' : ''}
-                                        cook {format(parseISO(s.cookDate), 'EEE d')}
+                                        {serving.batchId != null
+                                          ? 'Already cooked'
+                                          : `Cook ${format(parseISO(serving.cookDate), 'EEE d')}`}
                                       </span>
-                                    </button>
+                                    </div>
                                     <NumberField
                                       compact
-                                      value={s.portions}
-                                      min={0.5}
+                                      value={serving.portions}
+                                      min={0}
                                       max={8}
-                                      step={0.5}
+                                      step={serving.roleLabel === 'Dish' ? 1 : 0.5}
                                       onChange={(portions) =>
-                                        setDraft(
-                                          changeServingPortions(draft, s, portions, baseCatalog),
-                                        )
+                                        setDraft(adjustServingPortions(draft, serving, portions, catalog))
                                       }
                                     />
                                   </li>
-                                )
-                              })}
-                            </ul>
-                          )}
-                        </div>
-                      )
-                    })}
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )
+                      })}
                   </div>
                 </div>
               ))}
@@ -544,13 +416,13 @@ export function WeekPlannerPage() {
             ) : (
               <ul className="space-y-1 text-sm">
                 {draft.shopping.map((line) => {
-                  const ing = ingById.get(line.ingredientId)
+                  const ingredient = ingById.get(line.ingredientId)
                   return (
                     <li key={line.ingredientId} className="flex justify-between gap-2">
-                      <span>{ing?.name ?? line.ingredientId}</span>
+                      <span>{ingredient?.name ?? line.ingredientId}</span>
                       <span className="text-ink-muted">
                         need {line.need}
-                        {ing?.unit ? ` ${ing.unit}` : ''} → buy {line.buy}
+                        {ingredient?.unit ? ` ${ingredient.unit}` : ''} → buy {line.buy}
                         {line.packs != null ? ` (${line.packs} pack)` : ''}
                       </span>
                     </li>
@@ -561,32 +433,16 @@ export function WeekPlannerPage() {
           </section>
 
           <div className="panel-action flex flex-col gap-2 p-4 pb-8 sm:flex-row sm:flex-wrap">
-            <Button
-              className="w-full shrink-0 gap-2 whitespace-nowrap sm:w-auto sm:min-w-[10rem]"
-              disabled={busy}
-              onClick={() => void accept('fill')}
-            >
+            <Button className="w-full gap-2 sm:w-auto" disabled={busy} onClick={() => void accept()}>
               <IconCheck className="h-4 w-4" />
-              Fill empty slots
+              Use this plan
             </Button>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void accept('replace')}
-            >
-              Replace these days
-            </Button>
-            <Button
-              variant="secondary"
-              className="gap-1.5"
-              disabled={busy}
-              onClick={() => void generate(true)}
-            >
+            <Button variant="secondary" className="gap-1.5" disabled={busy} onClick={() => void generate()}>
               <IconSpark className="h-4 w-4" />
               Regenerate
             </Button>
             <Button variant="ghost" onClick={() => setDraft(null)}>
-              Discard draft
+              Discard
             </Button>
           </div>
         </>

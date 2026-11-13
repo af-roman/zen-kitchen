@@ -182,14 +182,25 @@ export interface PantryItem {
   unitCost?: number
 }
 
+/**
+ * How much of a recipe line is eaten, as opposed to poured, steeped, or left behind.
+ * Omitted means the whole amount is eaten. The pantry still uses `amount`.
+ */
+export type EatenShare = 'all' | 'coating' | 'trace' | 'none'
+
 export interface RecipeIngredientLine {
   ingredientId: number
-  /** Always in the ingredient’s stock unit (g / ml / pcs). */
+  /** Always in the ingredient’s stock unit (g / ml / pcs). What leaves the pantry. */
   amount: number
   /** Preferred display/entry unit; defaults to ingredient.unit when omitted. */
   measureUnit?: MeasureUnit
   /** Stage that consumes this line; defaults to 0 (cook day). */
   daysAhead?: number
+  /**
+   * Share of `amount` that counts toward nutrition.
+   * Pantry, shopping, and cook usage still use the full amount.
+   */
+  eatenShare?: EatenShare
 }
 
 export interface RecipeStep {
@@ -225,7 +236,17 @@ export interface Recipe {
   /** Prep only: amount yielded at the recipe’s base scale (ingredient unit) */
   yieldAmount?: number
   category: DishCategory
-  /** Primary cooking method; older recipes may omit this (inferred from legacy category). */
+  /**
+   * The dish already contains the meal's starch (donburi, curry rice).
+   * Planning will not add another staple beside it. Plain rice stays a staple recipe without this flag.
+   */
+  includesStaple?: boolean
+  /**
+   * Meals this dish may be planned into. Omitted means the category default:
+   * snack and dessert are breakfast and snack; everything else is lunch and dinner.
+   */
+  suitableMeals?: MealSlot[]
+  /** Primary cooking method. The planner uses this to avoid a run of the same technique. */
   technique?: PreparationTechnique
   effort: Effort
   /** Dish portions, or prep batch scale */

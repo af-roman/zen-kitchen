@@ -1,404 +1,617 @@
 import { addDays, format, parseISO } from 'date-fns'
-import type { DishCategory, MealSlot } from '@/domain/types'
-import { patternForMeal } from './patterns'
+import type { MealSlot, Nutrition } from '@/domain/types'
+import { MEAL_SLOTS } from '@/domain/types'
+import { addNutrition, emptyNutrition, macroGramsFromGoals, scaleNutrition } from '@/domain/nutrition'
 import { eatByDate, emptyDraft, scoreDraft } from './score'
 import { draftShoppingLines } from './shopping'
 import { loadRecipeTaste, tasteWeight } from './taste'
-import { mulberry32, pickWeighted, shuffleInPlace } from './rng'
 import type {
+  DishRole,
   PlannerCatalog,
   PlannerPrefs,
   RecipeCandidate,
   WeekDraft,
-  WeekDraftDish,
   WeekDraftServing,
   WeekDraftSession,
 } from './types'
+
+const MEAL_WEIGHT: Record<MealSlot, number> = {
+  breakfast: 0.55,
+  snack: 0.3,
+  lunch: 1,
+  dinner: 1.05,
+}
+
+type CookSlot = 'center' | 'light' | 'soup' | 'side' | 'staple'
+
+type Placement = {
+  recipe: RecipeCandidate
+  cookDate: string
+  eatBy: string
+  batchId?: number
+  fromRecipeId?: number
+  portionsLeft?: number
+}
 
 function daysApart(a: string, b: string): number {
   return Math.round((parseISO(a).getTime() - parseISO(b).getTime()) / 86400000)
 }
 
-function cookDatesForWeek(prefs: PlannerPrefs): string[] {
-  const dates: string[] = []
-  const n = Math.max(1, prefs.batchCookCount)
-  for (let i = 0; i < n; i++) {
-    const offset = Math.floor((i * prefs.dayCount) / n)
-    dates.push(format(addDays(parseISO(prefs.weekStartDate), offset), 'yyyy-MM-dd'))
+function roundPortion(n: number): number {
+  return Math.round(n * 2) / 2
+}
+
+/** Mean absolute miss of a portion against a target, as a fraction of the daily goals. */
+function macroMiss(actual: Nutrition, target: Nutrition, goals: Nutrition): number {
+  const keys = ['energyKcal', 'proteinG', 'carbsG', 'fatG'] as const
+  let total = 0
+  let count = 0
+  for (const key of keys) {
+    const goal = goals[key]
+    if (goal <= 0) continue
+    total += Math.abs(actual[key] - target[key]) / goal
+    count++
   }
-  return [...new Set(dates)].sort()
+  return count > 0 ? total / count : 0
 }
 
-function poolFromCatalog(catalog: PlannerCatalog): RecipeCandidate[] {
-  if (catalog.shortlistIds?.length) {
-    const allow = new Set(catalog.shortlistIds)
-    const filtered = catalog.candidates.filter((c) => allow.has(c.recipeId))
-    if (filtered.length > 0) return filtered
+function centerRoles(meal: MealSlot): DishRole[] {
+  if (meal === 'breakfast') return ['complete', 'center', 'snack']
+  if (meal === 'snack') return ['snack', 'complete', 'center', 'side']
+  return ['complete', 'center']
+}
+
+function isLightMeal(meal: MealSlot): boolean {
+  return meal === 'breakfast' || meal === 'snack'
+}
+
+function fitPortion(
+  kcal: number,
+  mealRoom: number,
+  dayRoom: number,
+  divisible: boolean,
+  required: boolean,
+): number | null {
+  if (kcal <= 0) return required ? 1 : null
+  if (kcal <= mealRoom && kcal <= dayRoom) return 1
+  if (divisible && kcal * 0.5 <= mealRoom && kcal * 0.5 <= dayRoom) return 0.5
+  if (!required) return null
+  if (divisible && kcal * 0.5 <= dayRoom) return 0.5
+  if (kcal <= dayRoom) return 1
+  return divisible ? 0.5 : 1
+}
+
+function sessionsFromServings(servings: WeekDraftServing[]): WeekDraftSession[] {
+  const byCook = new Map<string, Map<number, number>>()
+  for (const serving of servings) {
+    if (serving.batchId != null) continue
+    const add = (recipeId: number) => {
+      const dishes = byCook.get(serving.cookDate) ?? new Map<number, number>()
+      dishes.set(recipeId, roundPortion((dishes.get(recipeId) ?? 0) + serving.portions))
+      byCook.set(serving.cookDate, dishes)
+    }
+    add(serving.fromRecipeId ?? serving.recipeId)
+    if (serving.fromRecipeId != null && serving.fromRecipeId !== serving.recipeId) {
+      add(serving.recipeId)
+    }
   }
-  return catalog.candidates
+  return [...byCook.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, dishes]) => ({
+      date,
+      dishes: [...dishes.entries()].map(([recipeId, portions]) => ({ recipeId, portions })),
+    }))
 }
 
-function hasCategory(c: RecipeCandidate, category: DishCategory): boolean {
-  return c.category === category
-}
-
-/** Nearby categories when the catalog has nothing in the requested one. */
-function categoryFallback(category: DishCategory): DishCategory[] {
-  switch (category) {
-    case 'staple':
-      return ['staple', 'main']
-    case 'soup':
-      return ['soup', 'main']
-    case 'main':
-      return ['main', 'side']
-    case 'side':
-      return ['side', 'sauce', 'snack', 'main']
-    case 'sauce':
-      return ['sauce', 'side', 'snack']
-    case 'snack':
-      return ['snack', 'side', 'dessert']
-    case 'dessert':
-      return ['dessert', 'snack', 'side']
-    default:
-      return ['other', 'main', 'side']
-  }
-}
-
-type Supply = {
-  recipeId: number
-  left: number
-  cookDate: string
-  fridgeDays: number
-  isStaple: boolean
-  category: DishCategory
-  eatBy: string
-}
-
-function buildOneDraft(
-  prefs: PlannerPrefs,
-  catalog: PlannerCatalog,
-  seed: number,
-): WeekDraft {
-  const rand = mulberry32(seed)
-  const taste = loadRecipeTaste()
-  const pool = poolFromCatalog(catalog)
+/**
+ * Build one week from the cook evenings the user picked.
+ * Each meal is chosen to land the day near the calorie, protein, carb, and fat targets.
+ * Calories cannot be planned past the cap. Soup and sides are added only when they
+ * move that day closer. Each dish is eaten from the morning after its cook through its keep-by date.
+ */
+export function generateWeekDraft(prefs: PlannerPrefs, catalog: PlannerCatalog): WeekDraft {
+  const pool = catalog.candidates
   if (pool.length === 0) return emptyDraft(prefs)
-
-  const cookDates = cookDatesForWeek(prefs)
-  const meals = prefs.meals.length ? prefs.meals : (['lunch', 'dinner'] as MealSlot[])
+  const byId = new Map(pool.map((candidate) => [candidate.recipeId, candidate]))
+  const taste = loadRecipeTaste()
+  const meals = (prefs.meals.length ? prefs.meals : (['lunch', 'dinner'] as MealSlot[])).slice()
+  meals.sort((a, b) => MEAL_SLOTS.findIndex((slot) => slot.id === a) - MEAL_SLOTS.findIndex((slot) => slot.id === b))
   const days = Array.from({ length: prefs.dayCount }, (_, i) =>
     format(addDays(parseISO(prefs.weekStartDate), i), 'yyyy-MM-dd'),
   )
-  const urgentIng = new Set<number>()
-  for (const p of catalog.pantry) {
-    if (!p.expiryDate || p.amountLeft <= 0) continue
-    const daysLeft = daysApart(p.expiryDate, prefs.weekStartDate)
-    if (daysLeft >= 0 && daysLeft <= 5) urgentIng.add(p.ingredientId)
-  }
-
-  function urgencyBoost(c: RecipeCandidate): number {
-    let b = tasteWeight(c.recipeId, taste)
-    for (const id of c.ingredientNeeds.keys()) {
-      if (urgentIng.has(id)) b += 2
-    }
-    return b
-  }
-
-  /** Count pattern slots by dish category for a cook window. */
-  function roleDemand(windowDays: string[]): Map<DishCategory, number> {
-    const demand = new Map<DishCategory, number>()
-    for (const _date of windowDays) {
-      for (const meal of meals) {
-        const pattern = patternForMeal(meal, prefs.mealPatterns)
-        for (const slot of pattern.slots) {
-          demand.set(slot.role, (demand.get(slot.role) ?? 0) + 1)
-        }
-      }
-    }
-    return demand
-  }
-
-  const sessions: WeekDraftSession[] = []
-  const supplies: Supply[] = []
-  const servedOnce = new Set<number>()
+  const cookDates = [...new Set(prefs.cookDates)].sort()
+  const firstCook = cookDates[0]
+  const dailyKcal = catalog.goals.dailyKcal
+  const dayCap = dailyKcal * (1 + prefs.macroTolerancePct / 100)
+  const macroGrams = macroGramsFromGoals({
+    id: 1,
+    dailyKcal,
+    carbsPct: catalog.goals.carbsPct,
+    proteinPct: catalog.goals.proteinPct,
+    fatPct: catalog.goals.fatPct,
+  })
+  const dayGoals: Nutrition = { energyKcal: dailyKcal, ...macroGrams }
+  const day = { nutrition: emptyNutrition() }
+  let mealNut = emptyNutrition()
+  let activeGoal: Nutrition = dayGoals
   const warnings: string[] = []
 
-  for (let ci = 0; ci < cookDates.length; ci++) {
-    const cookDate = cookDates[ci]!
-    const nextCook = cookDates[ci + 1]
-    const windowEnd = nextCook
-      ? format(addDays(parseISO(nextCook), -1), 'yyyy-MM-dd')
-      : days[days.length - 1]!
-    const windowDays = days.filter((d) => d >= cookDate && d <= windowEnd)
-    const demand = roleDemand(windowDays)
+  const urgent = new Map<number, string>()
+  for (const item of catalog.pantry) {
+    if (!item.expiryDate || item.amountLeft <= 0) continue
+    if (daysApart(item.expiryDate, prefs.weekStartDate) <= 5) urgent.set(item.ingredientId, item.expiryDate)
+  }
 
-    const dishes: WeekDraftDish[] = []
-    const picked = new Set<number>()
+  const usedReady = new Map<number, number>()
+  const centers = new Map<string, Set<number>>()
+  const lights = new Map<string, number>()
+  const soups = new Map<string, number>()
+  const sides = new Map<string, number>()
+  const staples = new Map<string, number>()
+  const transforms = new Map<string, number>()
+  const lastCenterSlot = new Map<number, { date: string; meal: MealSlot }>()
+  const familiesByDate = new Map<string, Set<string>>()
+  let repeatedCenter = false
+  const rawSkipped = new Set<string>()
 
-    const pickForRole = (role: DishCategory, portions: number) => {
-      if (portions <= 0) return
-      const order = categoryFallback(role)
-      let from: RecipeCandidate[] = []
-      for (const r of order) {
-        from = pool.filter((c) => hasCategory(c, r) && !picked.has(c.recipeId))
-        if (from.length) break
+  function remember(map: Map<string, number>, cook: string, recipeId: number) {
+    if (!map.has(cook)) map.set(cook, recipeId)
+  }
+
+  function rawTooLate(recipe: RecipeCandidate, cookDate: string): boolean {
+    if (!firstCook) return false
+    const gap = daysApart(cookDate, firstCook)
+    if (gap <= 0) return false
+    for (const ingredientId of recipe.ingredientNeeds.keys()) {
+      const rawDays = catalog.ingredients.get(ingredientId)?.rawFridgeDays
+      if (rawDays != null && rawDays > 0 && gap > rawDays) {
+        const name = catalog.ingredients.get(ingredientId)?.name
+        if (name) rawSkipped.add(`${name} may not keep raw until ${format(parseISO(cookDate), 'EEE d')}`)
+        return true
       }
-      if (!from.length) {
-        from = pool.filter((c) => !picked.has(c.recipeId))
-      }
-      if (!from.length) from = [...pool]
-      const choice =
-        pickWeighted(shuffleInPlace([...from], rand), (c) => urgencyBoost(c) * (1 + rand()), rand) ??
-        from[0]
-      if (!choice) return
-      picked.add(choice.recipeId)
-      const existing = dishes.find((d) => d.recipeId === choice.recipeId)
-      if (existing) existing.portions += portions
-      else dishes.push({ recipeId: choice.recipeId, portions })
-      supplies.push({
-        recipeId: choice.recipeId,
-        left: portions,
-        cookDate,
-        fridgeDays: choice.fridgeDays,
-        isStaple: choice.isStaple,
-        category: choice.category,
-        eatBy: eatByDate(cookDate, choice.fridgeDays),
+    }
+    return false
+  }
+
+  function allowed(cook: string, recipe: RecipeCandidate, slot: CookSlot, relax: boolean): boolean {
+    if (slot === 'soup') {
+      const chosen = soups.get(cook)
+      return chosen == null || chosen === recipe.recipeId
+    }
+    if (slot === 'side') {
+      const chosen = sides.get(cook)
+      return chosen == null || chosen === recipe.recipeId
+    }
+    if (slot === 'staple') {
+      const chosen = staples.get(cook)
+      return chosen == null || chosen === recipe.recipeId
+    }
+    if (slot === 'light') {
+      const chosen = lights.get(cook)
+      if (chosen == null || chosen === recipe.recipeId) return true
+      return centers.get(cook)?.has(recipe.recipeId) === true
+    }
+    const chosen = centers.get(cook) ?? new Set<number>()
+    if (chosen.has(recipe.recipeId)) return true
+    return relax || chosen.size < 2
+  }
+
+  function placements(
+    date: string,
+    meal: MealSlot,
+    roles: DishRole[],
+    slot: CookSlot,
+    relax: boolean,
+  ): Placement[] {
+    const found: Placement[] = []
+    for (const batch of catalog.ready) {
+      const recipe = byId.get(batch.recipeId)
+      if (!recipe || !roles.includes(recipe.role) || !recipe.suitableMeals.includes(meal)) continue
+      if (date <= batch.cookedOn || date > batch.expiresAt) continue
+      const left = batch.portions - (usedReady.get(batch.batchId) ?? 0)
+      if (left <= 0) continue
+      found.push({
+        recipe,
+        cookDate: batch.cookedOn,
+        eatBy: batch.expiresAt,
+        batchId: batch.batchId,
+        portionsLeft: left,
       })
     }
-
-    // Staples are shared across many plate slots — cook a larger batch once.
-    const stapleNeed = demand.get('staple') ?? 0
-    const soupNeed = demand.get('soup') ?? 0
-    const mainNeed = demand.get('main') ?? 0
-    const sideNeed = demand.get('side') ?? 0
-    const sauceNeed = demand.get('sauce') ?? 0
-
-    if (stapleNeed > 0) pickForRole('staple', Math.max(stapleNeed, Math.ceil(stapleNeed * 0.5) + 1))
-    if (soupNeed > 0) pickForRole('soup', Math.max(2, soupNeed))
-    if (mainNeed > 0) {
-      pickForRole('main', Math.max(2, Math.ceil(mainNeed * 0.7)))
-      if (mainNeed > 3) pickForRole('main', Math.max(2, Math.ceil(mainNeed * 0.4)))
-    }
-    if (sideNeed > 0) {
-      pickForRole('side', Math.max(2, Math.ceil(sideNeed * 0.55)))
-      pickForRole('side', Math.max(1, Math.ceil(sideNeed * 0.45)))
-    }
-    if (sauceNeed > 0) pickForRole('sauce', Math.max(1, sauceNeed))
-    for (const [category, count] of demand) {
-      if (count <= 0) continue
-      if (
-        category === 'staple' ||
-        category === 'soup' ||
-        category === 'main' ||
-        category === 'side' ||
-        category === 'sauce'
-      ) {
-        continue
+    for (const cookDate of cookDates) {
+      if (date <= cookDate) continue
+      for (const recipe of pool) {
+        if (!roles.includes(recipe.role) || !recipe.suitableMeals.includes(meal)) continue
+        if (!allowed(cookDate, recipe, slot, relax)) continue
+        if (rawTooLate(recipe, cookDate)) continue
+        const eatBy = eatByDate(cookDate, recipe.fridgeDays)
+        if (date > eatBy) continue
+        found.push({ recipe, cookDate, eatBy })
       }
-      pickForRole(category, Math.max(1, count))
     }
-
-    // Ensure at least one dish if patterns asked for nothing weird
-    if (dishes.length === 0) {
-      pickForRole('main', Math.max(2, windowDays.length * meals.length))
-    }
-
-    sessions.push({ date: cookDate, dishes })
+    return found
   }
 
-  const lastDateByRecipe = new Map<number, string>()
-  const servings: WeekDraftServing[] = []
-  const candidateById = new Map(pool.map((c) => [c.recipeId, c]))
-
-  function canEat(supply: Supply, date: string): boolean {
-    return date >= supply.cookDate && date <= supply.eatBy
-  }
-
-  function pickSupplyForRole(
+  function scorePlacement(
     date: string,
-    role: DishCategory,
-    respectGap: boolean,
-  ): Supply | undefined {
-    let best: Supply | undefined
-    let bestScore = -Infinity
-    const fallbacks = categoryFallback(role)
-    for (const s of supplies) {
-      if (s.left <= 0 || !canEat(s, date)) continue
-      const roleOk = fallbacks.some((r) => s.category === r)
-      if (!roleOk && role !== 'main') continue
-      if (respectGap) {
-        const last = lastDateByRecipe.get(s.recipeId)
-        if (last && daysApart(date, last) < prefs.varietyGapDays) {
-          if (!(s.isStaple && prefs.stapleExtraCadence)) continue
-        }
+    meal: MealSlot,
+    placement: Placement,
+    todayFamilies: Set<string>,
+    todayCenters: Set<number>,
+  ): number {
+    const { recipe, cookDate, batchId, eatBy } = placement
+    let score = tasteWeight(recipe.recipeId, taste) * 3
+    score += ((recipe.recipeId * 13 + (catalog.seed ?? 0)) % 7) * 0.7
+    const known =
+      centers.get(cookDate)?.has(recipe.recipeId) ||
+      lights.get(cookDate) === recipe.recipeId ||
+      soups.get(cookDate) === recipe.recipeId ||
+      sides.get(cookDate) === recipe.recipeId ||
+      staples.get(cookDate) === recipe.recipeId
+    if (known) score += 12
+    if (batchId != null) score += 10
+    if (prefs.preferExpiring) {
+      for (const ingredientId of recipe.ingredientNeeds.keys()) {
+        const expiry = urgent.get(ingredientId)
+        if (expiry && cookDate <= expiry) score += 4
       }
-      const urgency = 10 - Math.min(10, daysApart(s.eatBy, date))
-      const taste = tasteWeight(s.recipeId, loadRecipeTaste())
-      const roleMatch = s.category === role ? 3 : 0
-      const score = s.left + urgency * 2 + roleMatch + taste
+    }
+    score += Math.max(0, 5 - daysApart(eatBy, date))
+    score -= macroMiss(scaleNutrition(recipe.nutritionPerPortion, 1), activeGoal, dayGoals) * 800
+    if (!isLightMeal(meal) && recipe.role !== 'soup' && recipe.role !== 'side' && recipe.role !== 'staple') {
+      if (todayCenters.has(recipe.recipeId)) score -= 40
+      if (recipe.techniqueFamily && todayFamilies.has(recipe.techniqueFamily)) score -= 25
+      const yesterday = format(addDays(parseISO(date), -1), 'yyyy-MM-dd')
+      const previous = familiesByDate.get(yesterday)
+      if (recipe.techniqueFamily && previous?.has(recipe.techniqueFamily)) score -= 8
+      const last = lastCenterSlot.get(recipe.recipeId)
+      if (
+        last &&
+        prefs.varietyGapDays > 0 &&
+        daysApart(date, last.date) > 0 &&
+        daysApart(date, last.date) <= prefs.varietyGapDays
+      ) {
+        score -= last.meal === meal ? 28 : 4
+      }
+    }
+    return score
+  }
+
+  function pick(
+    date: string,
+    meal: MealSlot,
+    roles: DishRole[],
+    slot: CookSlot,
+    todayFamilies: Set<string>,
+    todayCenters: Set<number>,
+    relax: boolean,
+  ): Placement | undefined {
+    const options = placements(date, meal, roles, slot, relax)
+    let best: Placement | undefined
+    let bestScore = -Infinity
+    for (const option of options) {
+      const score = scorePlacement(date, meal, option, todayFamilies, todayCenters)
       if (score > bestScore) {
         bestScore = score
-        best = s
-      }
-    }
-    // Last resort: any edible supply
-    if (!best) {
-      for (const s of supplies) {
-        if (s.left <= 0 || !canEat(s, date)) continue
-        return s
+        best = option
       }
     }
     return best
   }
 
-  function pickTransformForRole(
-    date: string,
-    role: DishCategory,
-  ): { supply: Supply; transform: RecipeCandidate } | undefined {
-    const transforms = catalog.candidates.filter(
-      (c) => c.repurposesFromRecipeIds.length > 0 && hasCategory(c, role),
-    )
-    if (transforms.length === 0) return undefined
+  function register(placement: Placement, meal: MealSlot) {
+    if (placement.batchId != null) return
+    const { cookDate, recipe } = placement
+    if (recipe.role === 'soup') remember(soups, cookDate, recipe.recipeId)
+    else if (recipe.role === 'side') remember(sides, cookDate, recipe.recipeId)
+    else if (recipe.role === 'staple') remember(staples, cookDate, recipe.recipeId)
+    else if (isLightMeal(meal)) {
+      remember(lights, cookDate, recipe.recipeId)
+      if (recipe.role === 'center' || recipe.role === 'complete') {
+        const set = centers.get(cookDate) ?? new Set<number>()
+        set.add(recipe.recipeId)
+        centers.set(cookDate, set)
+      }
+    } else {
+      const set = centers.get(cookDate) ?? new Set<number>()
+      set.add(recipe.recipeId)
+      centers.set(cookDate, set)
+    }
+  }
 
-    const options: { supply: Supply; transform: RecipeCandidate; score: number }[] = []
-    for (const supply of supplies) {
-      if (supply.left <= 0 || !canEat(supply, date)) continue
-      if (!servedOnce.has(supply.recipeId)) continue
-      for (const t of transforms) {
-        if (!t.repurposesFromRecipeIds.includes(supply.recipeId)) continue
-        const lastT = lastDateByRecipe.get(t.recipeId)
-        if (lastT && daysApart(date, lastT) < prefs.varietyGapDays) continue
-        const urgency = 10 - Math.min(10, daysApart(supply.eatBy, date))
-        options.push({
-          supply,
-          transform: t,
-          score: urgency + supply.left + tasteWeight(t.recipeId, taste) + rand(),
-        })
+  function pushServing(
+    list: WeekDraftServing[],
+    date: string,
+    meal: MealSlot,
+    placement: Placement,
+    portions: number,
+    label: string,
+  ) {
+    const taken = roundPortion(portions)
+    if (taken <= 0) return 0
+    if (placement.batchId != null) {
+      const left = placement.portionsLeft ?? 0
+      const use = Math.min(taken, left)
+      if (use <= 0) return 0
+      usedReady.set(placement.batchId, (usedReady.get(placement.batchId) ?? 0) + use)
+      list.push({
+        date,
+        meal,
+        recipeId: placement.recipe.recipeId,
+        portions: use,
+        cookDate: placement.cookDate,
+        batchId: placement.batchId,
+        fromRecipeId: placement.fromRecipeId,
+        role: placement.recipe.category,
+        roleLabel: label,
+      })
+      return use
+    }
+    list.push({
+      date,
+      meal,
+      recipeId: placement.recipe.recipeId,
+      portions: taken,
+      cookDate: placement.cookDate,
+      fromRecipeId: placement.fromRecipeId,
+      role: placement.recipe.category,
+      roleLabel: label,
+    })
+    register(placement, meal)
+    return taken
+  }
+
+  function findTransform(date: string, meal: MealSlot, dayRoom: number, baselineMiss: number): Placement | undefined {
+    let best: Placement | undefined
+    let bestMiss = baselineMiss
+    for (const recipe of pool) {
+      if (!recipe.suitableMeals.includes(meal)) continue
+      if (recipe.repurposesFromRecipeIds.length === 0) continue
+      if (recipe.role !== 'center' && recipe.role !== 'complete') continue
+      for (const cookDate of cookDates) {
+        if (date <= cookDate) continue
+        if (transforms.get(cookDate) != null && transforms.get(cookDate) !== recipe.recipeId) continue
+        for (const sourceId of recipe.repurposesFromRecipeIds) {
+          if (!centers.get(cookDate)?.has(sourceId)) continue
+          const source = byId.get(sourceId)
+          if (!source) continue
+          const eatBy = eatByDate(cookDate, source.fridgeDays)
+          if (date !== eatBy) continue
+          const nut = scaleNutrition(recipe.nutritionPerPortion, 1)
+          if (nut.energyKcal > dayRoom + 1) continue
+          const miss = macroMiss(nut, activeGoal, dayGoals)
+          if (miss + 0.01 < bestMiss) {
+            bestMiss = miss
+            best = { recipe, cookDate, eatBy, fromRecipeId: sourceId }
+          }
+        }
       }
     }
-    if (options.length === 0) return undefined
-    options.sort((a, b) => b.score - a.score)
-    // Prefer transforms when leftovers are urgent; otherwise ~40%
-    const top = options[0]!
-    const urgent = daysApart(top.supply.eatBy, date) <= 1
-    if (!urgent && rand() > 0.4) return undefined
-    return { supply: top.supply, transform: top.transform }
+    return best
+  }
+
+  const servings: WeekDraftServing[] = []
+
+  if (cookDates.length === 0 && catalog.ready.length === 0) {
+    warnings.push('Pick at least one cook evening.')
+  }
+
+  const unmarkedMeals = meals.filter((meal) => {
+    const inPool = pool.some(
+      (recipe) => recipe.suitableMeals.includes(meal) && centerRoles(meal).includes(recipe.role),
+    )
+    const inReady = catalog.ready.some((batch) => {
+      const recipe = byId.get(batch.recipeId)
+      return recipe != null && recipe.suitableMeals.includes(meal) && centerRoles(meal).includes(recipe.role)
+    })
+    return !inPool && !inReady
+  })
+  for (const meal of unmarkedMeals) {
+    const label = MEAL_SLOTS.find((slot) => slot.id === meal)?.label ?? meal
+    warnings.push(`No recipe is marked for ${label.toLowerCase()}, so those slots stay empty.`)
+  }
+
+  function beginMeal(meal: MealSlot) {
+    const index = meals.indexOf(meal)
+    const later = index >= 0 ? meals.slice(index) : [meal]
+    const laterSum = later.reduce((total, id) => total + MEAL_WEIGHT[id], 0)
+    const share = laterSum > 0 ? MEAL_WEIGHT[meal] / laterSum : 1
+    activeGoal = {
+      energyKcal: Math.max(0, (dayGoals.energyKcal - day.nutrition.energyKcal) * share),
+      proteinG: Math.max(0, (dayGoals.proteinG - day.nutrition.proteinG) * share),
+      carbsG: Math.max(0, (dayGoals.carbsG - day.nutrition.carbsG) * share),
+      fatG: Math.max(0, (dayGoals.fatG - day.nutrition.fatG) * share),
+    }
+    mealNut = emptyNutrition()
+  }
+
+  function place(date: string, meal: MealSlot, placement: Placement, portions: number, label: string) {
+    const used = pushServing(servings, date, meal, placement, portions, label)
+    if (used <= 0) return
+    const nut = scaleNutrition(placement.recipe.nutritionPerPortion, used)
+    day.nutrition = addNutrition(day.nutrition, nut)
+    mealNut = addNutrition(mealNut, nut)
+  }
+
+  function addBest(
+    date: string,
+    meal: MealSlot,
+    courses: { role: 'soup' | 'side' | 'staple'; label: string }[],
+    todayFamilies: Set<string>,
+  ) {
+    const baseline = macroMiss(mealNut, activeGoal, dayGoals)
+    let best: { placement: Placement; portions: number; label: string; miss: number } | undefined
+    for (const course of courses) {
+      for (const option of placements(date, meal, [course.role], course.role, false)) {
+        if (
+          course.role === 'side' &&
+          option.recipe.techniqueFamily &&
+          todayFamilies.has(option.recipe.techniqueFamily)
+        ) {
+          continue
+        }
+        const sizes = option.recipe.divisible ? [1, 0.5] : [1]
+        for (const size of sizes) {
+          const nut = scaleNutrition(option.recipe.nutritionPerPortion, size)
+          if (nut.energyKcal > dayCap - day.nutrition.energyKcal + 1) continue
+          const miss = macroMiss(addNutrition(mealNut, nut), activeGoal, dayGoals)
+          if (!best || miss < best.miss) best = { placement: option, portions: size, label: course.label, miss }
+        }
+      }
+    }
+    if (!best || best.miss > baseline - 0.004) return
+    place(date, meal, best.placement, best.portions, best.label)
   }
 
   for (const date of days) {
+    day.nutrition = emptyNutrition()
+    const todayFamilies = new Set<string>()
+    const todayCenters = new Set<number>()
+    familiesByDate.set(date, todayFamilies)
+
     for (const meal of meals) {
-      const pattern = patternForMeal(meal, prefs.mealPatterns)
-      const usedInMeal = new Set<number>()
+      beginMeal(meal)
+      const dayRoom = () => dayCap - day.nutrition.energyKcal
+      const slot = isLightMeal(meal) ? 'light' : 'center'
+      let center =
+        pick(date, meal, centerRoles(meal), slot, todayFamilies, todayCenters, false) ??
+        pick(date, meal, centerRoles(meal), slot, todayFamilies, todayCenters, true)
+      if (!center && !isLightMeal(meal)) {
+        center = pick(date, meal, ['complete', 'center', 'snack'], 'center', todayFamilies, todayCenters, true)
+      }
+      if (!center) continue
 
-      for (const slot of pattern.slots) {
-        // Leftover transforms fill the plate around rice and soup.
-        if (slot.role !== 'staple' && slot.role !== 'soup') {
-          const tr = pickTransformForRole(date, slot.role)
-          if (tr && !usedInMeal.has(tr.transform.recipeId)) {
-            tr.supply.left -= 1
-            servedOnce.add(tr.supply.recipeId)
-            lastDateByRecipe.set(tr.transform.recipeId, date)
-            usedInMeal.add(tr.transform.recipeId)
-            servings.push({
-              date,
-              meal,
-              recipeId: tr.transform.recipeId,
-              portions: 1,
-              cookDate: tr.supply.cookDate,
-              fromRecipeId: tr.supply.recipeId,
-              role: slot.role,
-              roleLabel: slot.label,
-            })
-            continue
-          }
-        }
-
-        let supply = pickSupplyForRole(date, slot.role, true)
-        if (!supply) supply = pickSupplyForRole(date, slot.role, false)
-        if (!supply) {
-          warnings.push(
-            `${format(parseISO(date), 'EEE d')} ${meal}: missing ${slot.label.toLowerCase()}`,
+      const repeats =
+        !isLightMeal(meal) &&
+        prefs.varietyGapDays > 0 &&
+        (() => {
+          const last = lastCenterSlot.get(center!.recipe.recipeId)
+          return (
+            last != null &&
+            last.meal === meal &&
+            daysApart(date, last.date) > 0 &&
+            daysApart(date, last.date) <= prefs.varietyGapDays
           )
-          continue
-        }
-        // Prefer not repeating same dish twice in one plate when alternatives exist
-        if (usedInMeal.has(supply.recipeId)) {
-          const alt = pickSupplyForRole(date, slot.role, false)
-          if (alt && alt.recipeId !== supply.recipeId) supply = alt
-        }
-
-        supply.left -= 1
-        servedOnce.add(supply.recipeId)
-        lastDateByRecipe.set(supply.recipeId, date)
-        usedInMeal.add(supply.recipeId)
-        servings.push({
+        })()
+      if (repeats) {
+        const transform = findTransform(
           date,
           meal,
-          recipeId: supply.recipeId,
-          portions: 1,
-          cookDate: supply.cookDate,
-          role: slot.role,
-          roleLabel: slot.label,
-        })
+          dayRoom(),
+          macroMiss(scaleNutrition(center.recipe.nutritionPerPortion, 1), activeGoal, dayGoals),
+        )
+        if (transform) {
+          transforms.set(transform.cookDate, transform.recipe.recipeId)
+          center = transform
+        }
       }
+
+      const centerPortions = fitPortion(
+        center.recipe.nutritionPerPortion.energyKcal,
+        dayRoom(),
+        dayRoom(),
+        center.recipe.divisible,
+        true,
+      )
+      if (centerPortions == null) continue
+      place(date, meal, center, centerPortions, 'Dish')
+      if (!isLightMeal(meal)) {
+        const last = lastCenterSlot.get(center.recipe.recipeId)
+        if (
+          !center.fromRecipeId &&
+          last &&
+          last.meal === meal &&
+          daysApart(date, last.date) > 0 &&
+          prefs.varietyGapDays > 0 &&
+          daysApart(date, last.date) <= prefs.varietyGapDays
+        ) {
+          repeatedCenter = true
+        }
+        lastCenterSlot.set(center.recipe.recipeId, { date, meal })
+        todayCenters.add(center.recipe.recipeId)
+        if (center.recipe.techniqueFamily) todayFamilies.add(center.recipe.techniqueFamily)
+      }
+
+      if (isLightMeal(meal)) continue
+      const blocksStaple = center.recipe.role === 'complete' || center.recipe.includesStaple
+      if (!blocksStaple) addBest(date, meal, [{ role: 'staple', label: 'Rice' }], todayFamilies)
+      if (meal === 'lunch') addBest(date, meal, [{ role: 'soup', label: 'Soup' }, { role: 'side', label: 'Side' }], todayFamilies)
+      if (meal === 'dinner') {
+        addBest(date, meal, [{ role: 'soup', label: 'Soup' }], todayFamilies)
+        addBest(date, meal, [{ role: 'side', label: 'Side' }], todayFamilies)
+      }
+    }
+
+    while (day.nutrition.energyKcal > dayCap + 1) {
+      const extra = [...servings]
+        .reverse()
+        .find((serving) => serving.date === date && (serving.roleLabel === 'Side' || serving.roleLabel === 'Soup' || serving.roleLabel === 'Rice'))
+      if (!extra) break
+      const cand = byId.get(extra.recipeId)
+      servings.splice(servings.lastIndexOf(extra), 1)
+      if (extra.batchId != null) {
+        usedReady.set(extra.batchId, Math.max(0, (usedReady.get(extra.batchId) ?? 0) - extra.portions))
+      }
+      if (cand) day.nutrition = addNutrition(day.nutrition, scaleNutrition(cand.nutritionPerPortion, -extra.portions))
+    }
+
+    const missing = meals.filter(
+      (meal) =>
+        !unmarkedMeals.includes(meal) &&
+        !servings.some((serving) => serving.date === date && serving.meal === meal),
+    )
+    if (missing.length > 0 && missing.length < meals.length) {
+      warnings.push(`${format(parseISO(date), 'EEE d')}: no ${missing.join(' or ')}`)
     }
   }
 
-  void candidateById
+  if (repeatedCenter) {
+    warnings.push('Some mains repeat on back-to-back days so the cook list stays short.')
+  }
+  for (const note of rawSkipped) warnings.push(note)
 
-  const merged = mergeServings(servings)
+  const hadSoup = pool.some((candidate) => candidate.role === 'soup')
+  const hadSide = pool.some((candidate) => candidate.role === 'side')
+  const placedSoup = servings.some((serving) => serving.roleLabel === 'Soup')
+  const placedSide = servings.some((serving) => serving.roleLabel === 'Side')
+  if ((hadSoup || hadSide) && !placedSoup && !placedSide && meals.some((meal) => meal === 'lunch' || meal === 'dinner')) {
+    warnings.push('No soup or side moved the day closer to the targets. Meals stay as a single dish.')
+  }
+
+  const sessions = sessionsFromServings(servings)
   const shopping = draftShoppingLines(sessions, catalog)
-  const { score, avgNutrition, warnings: scoreWarnings, dayGoalGaps } = scoreDraft(
-    prefs,
-    sessions,
-    merged,
-    shopping,
-    catalog,
-  )
+  const scored = scoreDraft(prefs, sessions, servings, shopping, catalog, warnings)
   return {
     prefs,
     sessions,
-    servings: merged,
+    servings,
     shopping,
-    score,
-    avgNutrition,
-    dayGoalGaps,
-    warnings: [...new Set([...scoreWarnings, ...warnings])],
+    ...scored,
   }
 }
 
-function mergeServings(list: WeekDraftServing[]): WeekDraftServing[] {
-  const map = new Map<string, WeekDraftServing>()
-  for (const s of list) {
-    const key = `${s.date}|${s.meal}|${s.recipeId}|${s.cookDate}|${s.fromRecipeId ?? ''}|${s.role ?? ''}`
-    const prev = map.get(key)
-    if (prev) prev.portions += s.portions
-    else map.set(key, { ...s })
-  }
-  return [...map.values()].sort((a, b) =>
-    a.date === b.date ? a.meal.localeCompare(b.meal) : a.date.localeCompare(b.date),
-  )
-}
-
-/**
- * Generate several seeded heuristics and return the best-scoring draft.
- * Prefers drafts with fewer off-goal days when scores are close.
- */
-export function generateWeekDraft(
-  prefs: PlannerPrefs,
+/** Change one serving's portions and resize the cook batch to match. */
+export function adjustServingPortions(
+  draft: WeekDraft,
+  serving: WeekDraftServing,
+  portions: number,
   catalog: PlannerCatalog,
-  attempts = 12,
 ): WeekDraft {
-  const baseSeed = catalog.seed ?? Date.now() % 1_000_000
-  let best = emptyDraft(prefs)
-  for (let i = 0; i < attempts; i++) {
-    const draft = buildOneDraft(prefs, catalog, baseSeed + i * 9973)
-    const bestOff = best.dayGoalGaps.filter((g) => g.offGoal).length
-    const draftOff = draft.dayGoalGaps.filter((g) => g.offGoal).length
-    const better =
-      draft.score.total > best.score.total + 0.5 ||
-      (Math.abs(draft.score.total - best.score.total) <= 0.5 && draftOff < bestOff)
-    if (better) best = draft
-  }
-  return best
+  const nextPortions = roundPortion(portions)
+  const same = (item: WeekDraftServing) =>
+    item.date === serving.date &&
+    item.meal === serving.meal &&
+    item.recipeId === serving.recipeId &&
+    item.cookDate === serving.cookDate &&
+    item.fromRecipeId === serving.fromRecipeId &&
+    item.batchId === serving.batchId &&
+    item.roleLabel === serving.roleLabel
+  const servings =
+    nextPortions <= 0
+      ? draft.servings.filter((item) => !same(item))
+      : draft.servings.map((item) => (same(item) ? { ...item, portions: nextPortions } : item))
+  const sessions = sessionsFromServings(servings)
+  const shopping = draftShoppingLines(sessions, catalog)
+  const scored = scoreDraft(draft.prefs, sessions, servings, shopping, catalog)
+  return { ...draft, sessions, servings, shopping, ...scored }
 }

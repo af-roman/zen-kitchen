@@ -15,6 +15,7 @@ import { RecipeDetailPage } from './features/recipes/RecipeDetailPage'
 import { RecipeEditPage } from './features/recipes/RecipeEditPage'
 import { PantryPage } from './features/pantry/PantryPage'
 import { MorePage } from './features/more/MorePage'
+import { GuidePage } from './features/more/GuidePage'
 import { IngredientsPage } from './features/ingredients/IngredientsPage'
 import { ShoppingPage } from './features/shopping/ShoppingPage'
 import { GoalsPage } from './features/goals/GoalsPage'
@@ -43,6 +44,7 @@ export default function App() {
                 <Route path="recipes" element={<RecipesPage />} />
                 <Route path="pantry" element={<PantryPage />} />
                 <Route path="more" element={<MorePage />} />
+                <Route path="guide" element={<GuidePage />} />
                 <Route path="ingredients" element={<IngredientsPage />} />
                 <Route path="shopping" element={<ShoppingPage />} />
                 <Route path="log" element={<Navigate to="/notebook" replace />} />

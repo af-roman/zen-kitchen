@@ -17,6 +17,8 @@ import type {
   SessionDishPlan,
 } from '@/domain/types'
 import { INGREDIENT_CATEGORIES } from '@/domain/types'
+import { roundAmount } from '@/domain/amountInput'
+import { eatenFactorForIngredient, eatenShareNote } from '@/domain/eatenShare'
 import { expiryFromCook, formatQuantity, isAlwaysAvailable, isPrepRecipe, prepYieldAmount, storageLabel, todayISO } from '@/domain/kitchen'
 import { planServePath } from '@/features/plan/servePath'
 import {
@@ -27,7 +29,9 @@ import {
 } from '@/domain/storage'
 import {
   allowedMeasureUnits,
+  amountEntry,
   formatRecipeAmount,
+  formatStockAmount,
   fromStockAmount,
   measureUnitOf,
   toStockAmount,
@@ -192,13 +196,9 @@ function capStockAmount(pantryItemId: number, amountUsed: number, pantry: Pantry
   return Math.min(Math.max(0, amountUsed), max)
 }
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10
-}
-
 function pantryLotOption(item: PantryItem, ing: Ingredient | undefined) {
   const name = ing?.name ?? 'Pantry item'
-  const left = `${item.amountLeft} ${ing?.unit ?? ''} left`.replace(/\s+/g, ' ').trim()
+  const left = `${formatStockAmount(item.amountLeft, ing?.unit)} ${ing?.unit ?? ''} left`.replace(/\s+/g, ' ').trim()
   const brand = item.brand.trim()
   const expiry = item.expiryDate ? `exp ${item.expiryDate}` : ''
   return {
@@ -315,9 +315,13 @@ function CookSessionView({
       if (!ing) continue
       const item = u.pantryItemId ? pantry.find((p) => p.id === u.pantryItemId) : undefined
       const per100 = item?.nutritionOverride ?? ing.nutritionPer100
+      const recipe = recipeById.get(d.recipeId)
+      const factor = recipe
+        ? eatenFactorForIngredient(stageIngredients(recipe, dishStage(d)), u.ingredientId)
+        : 1
       total = addNutrition(
         total,
-        nutritionForAmount(per100, u.amountUsed, ing.unit, ing.avgPieceGrams),
+        nutritionForAmount(per100, u.amountUsed * factor, ing.unit, ing.avgPieceGrams),
       )
     }
     return scaleNutrition(total, 1 / Math.max(1, d.portions))
@@ -342,7 +346,7 @@ function CookSessionView({
         added.push(
           defaultUsageRow(
             line.ingredientId,
-            round1(line.amount * scale),
+            roundAmount(line.amount * scale, 2),
             pantry,
             ing ? measureUnitOf(line, ing) : undefined,
           ),
@@ -822,7 +826,7 @@ function CookSessionView({
               for (const line of stageLines) {
                 const ing = ingById.get(line.ingredientId)
                 const measure = ing ? measureUnitOf(line, ing) : undefined
-                const target = round1(line.amount * scale)
+                const target = roundAmount(line.amount * scale, 2)
                 const existing = usageForIngredient(dish, line.ingredientId)
                 if (existing.length > 0) {
                   nextUsage.push({
@@ -886,11 +890,12 @@ function CookSessionView({
               rows[0]?.measureUnit ??
               (ing && recipeLine ? measureUnitOf(recipeLine, ing) : ing?.unit ?? 'g')
             const measureOptions = ing ? allowedMeasureUnits(ing) : ([measure] as MeasureUnit[])
-            const neededStock = recipeLine ? round1(recipeLine.amount * scale) : undefined
+            const neededStock = recipeLine ? roundAmount(recipeLine.amount * scale, 2) : undefined
             const needLabel =
               neededStock != null && ing
                 ? formatRecipeAmount(neededStock, measure, ing)
                 : undefined
+            const eatenNote = eatenShareNote(stageLines, ingredientId)
 
             return (
               <li key={ingredientId} className="rounded-lg border border-line p-3">
@@ -905,6 +910,9 @@ function CookSessionView({
                     ) : (
                       <span className="mt-0.5 block text-xs text-ink-muted">Added while cooking</span>
                     )}
+                    {eatenNote ? (
+                      <span className="mt-0.5 block text-xs text-ink-muted">{eatenNote}</span>
+                    ) : null}
                   </div>
                   {!dish.completed ? (
                     <RemoveButton
@@ -929,7 +937,8 @@ function CookSessionView({
                               : rows[0]?.amountUsed ?? 0
                           }
                           min={0}
-                          step={0.1}
+                          step={amountEntry(measure).step}
+                          fractions={amountEntry(measure).fractions}
                           disabled={dish.completed}
                           onChange={(shown) => {
                             if (!ing) return
@@ -953,7 +962,6 @@ function CookSessionView({
                       <Field label="Unit">
                         <SelectField
                           title="Unit"
-                          compact
                           disabled={dish.completed || !ing}
                           value={measure}
                           onChange={(nextMeasure) => {
@@ -1035,7 +1043,8 @@ function CookSessionView({
                                 value={displayAmount}
                                 min={0}
                                 max={maxDisplay}
-                                step={0.1}
+                                step={amountEntry(measure).step}
+                                fractions={amountEntry(measure).fractions}
                                 disabled={dish.completed}
                                 onChange={(shown) => {
                                   if (!ing) return
@@ -1059,7 +1068,6 @@ function CookSessionView({
                             <Field label="Unit">
                               <SelectField
                                 title="Unit"
-                                compact
                                 disabled={dish.completed || !ing}
                                 value={measure}
                                 onChange={(nextMeasure) => {

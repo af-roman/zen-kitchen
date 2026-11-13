@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import type { ComponentType, SVGProps } from 'react'
-import { IconBackup, IconGoals, IconIngredients, IconNotebook } from '@/shared/icons'
+import { IconBackup, IconGoals, IconGuide, IconIngredients, IconNotebook } from '@/shared/icons'
 import { Button, PageHeader } from '@/shared/ui'
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement>>
@@ -20,6 +20,12 @@ const links: { to: string; label: string; hint: string; icon: Glyph }[] = [
     icon: IconNotebook,
   },
   { to: '/backup', label: 'Backup & sync', hint: 'Cloud and JSON export', icon: IconBackup },
+  {
+    to: '/guide',
+    label: 'How it works',
+    hint: 'Patterns, planner rules, built-in numbers',
+    icon: IconGuide,
+  },
 ]
 
 export function MorePage() {

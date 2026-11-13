@@ -19,7 +19,7 @@ import {
 } from '@/domain/recipeImport/synonyms'
 import { uid } from '@/domain/kitchen'
 import { IngredientEditorSheet } from '@/features/ingredients/IngredientEditorSheet'
-import { canUseMeasureUnit, toStockAmount } from '@/domain/measures'
+import { canUseMeasureUnit, amountEntry, toStockAmount } from '@/domain/measures'
 import { DEFAULT_SUBRECIPE } from '@/domain/recipeMath'
 import type { DishCategory } from '@/domain/types'
 import { NumberField } from '@/shared/forms'
@@ -331,14 +331,12 @@ export function ImportFromUrlSheet({
                   <div className="mt-2 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       <Field label="Amount">
-                        <input
-                          className={inputClass}
-                          type="number"
-                          min={0}
-                          step="any"
+                        <NumberField
                           value={line.amount}
-                          onChange={(e) => {
-                            const amount = Number(e.target.value)
+                          min={0}
+                          step={amountEntry(line.measureUnit).step}
+                          fractions={amountEntry(line.measureUnit).fractions}
+                          onChange={(amount) => {
                             setDraftLines(
                               (rows) =>
                                 rows?.map((r, i) => (i === index ? { ...r, amount } : r)) ?? null,

@@ -1,21 +1,24 @@
-import type { DishCategory, MealSlot, Nutrition } from '@/domain/types'
-import type { MealPatternId } from './patterns'
+import type { DishCategory, MealSlot, Nutrition, PreparationTechnique } from '@/domain/types'
 
 export type PlannerPrefs = {
-  /** Inclusive week start (yyyy-MM-dd). */
+  /** First day meals are eaten (yyyy-MM-dd). */
   weekStartDate: string
   dayCount: number
   meals: MealSlot[]
-  /** Target batch cook sessions in the week. */
-  batchCookCount: number
-  /** Allow staple category recipes to recur more often. */
-  stapleExtraCadence: boolean
-  /** Acceptable daily kcal / macro drift vs goals (±%). */
-  macroTolerancePct: number
-  /** Min calendar days between same non-staple recipe. */
+  /** Evenings the user can cook. Food from a cook is eaten on later days. */
+  cookDates: string[]
+  /**
+   * How many days must pass before the same lunch or dinner center repeats.
+   * 1 means it can return the day after tomorrow.
+   */
   varietyGapDays: number
-  /** Meal composition pattern per slot (lunch bento, dinner ichiju-sansai, …). */
-  mealPatterns?: Partial<Record<MealSlot, MealPatternId>>
+  /** Prefer recipes that use pantry food expiring soon. */
+  preferExpiring: boolean
+  /**
+   * A day this far from any daily target is flagged.
+   * Calories also cannot be planned more than this far over the goal.
+   */
+  macroTolerancePct: number
 }
 
 export type WeekDraftDish = {
@@ -33,16 +36,13 @@ export type WeekDraftServing = {
   meal: MealSlot
   recipeId: number
   portions: number
-  /** Cook date that supplies this serving. */
+  /** Cook evening that supplies this serving. Ready batches use the evening they were cooked. */
   cookDate: string
-  /**
-   * When set, this serving is a leftover repurpose of `fromRecipeId`
-   * (cooked on `cookDate`); `recipeId` is the transform dish.
-   */
+  /** Leftover this serving uses up. The cooked batch is `fromRecipeId`. */
   fromRecipeId?: number
-  /** Dish category this item fills (staple, soup, …). */
+  /** Ready batch already in the fridge. No new cook session. */
+  batchId?: number
   role?: DishCategory
-  /** Soft label for draft UI (Rice, Soup, …). */
   roleLabel?: string
 }
 
@@ -54,12 +54,10 @@ export type WeekDraftShopLine = {
 }
 
 export type WeekDraftScore = {
-  total: number
-  macros: number
-  variety: number
-  waste: number
-  cookLoad: number
-  soonExpire: number
+  dishes: number
+  cooks: number
+  daysOver: number
+  daysUnder: number
 }
 
 /** Per-day drift vs Kitchen goals (for review UI). */
@@ -83,23 +81,42 @@ export type WeekDraft = {
   warnings: string[]
   /** Average daily nutrition across filled days. */
   avgNutrition: Nutrition
-  /** Days outside macro tolerance (and notable drifts). */
   dayGoalGaps: DayGoalGap[]
 }
+
+export type DishRole = 'complete' | 'center' | 'soup' | 'side' | 'staple' | 'snack'
 
 export type RecipeCandidate = {
   recipeId: number
   name: string
   category: DishCategory
+  role: DishRole
+  technique: PreparationTechnique
+  /** Fried methods share a family. Unclassified techniques are null. */
+  techniqueFamily: string | null
   isStaple: boolean
+  /** Main or other dish that already contains rice or noodles. */
+  includesStaple: boolean
+  /** Soup, side, sauce, and staple can be served as half portions. */
+  divisible: boolean
   portionsBase: number
   nutritionPerPortion: Nutrition
-  /** Fridge keep days used for planning eat-by. */
+  /** Fridge keep days. The clock starts the morning after cooking. */
   fridgeDays: number
   /** Ingredient amounts for one base recipe batch (recipe.portions). */
   ingredientNeeds: Map<number, number>
   /** Recipe ids whose leftovers this dish can use. */
   repurposesFromRecipeIds: number[]
+  /** Meals this dish may fill. Breakfast is not implied for a main. */
+  suitableMeals: MealSlot[]
+}
+
+export type PlannerReadyBatch = {
+  batchId: number
+  recipeId: number
+  portions: number
+  cookedOn: string
+  expiresAt: string
 }
 
 export type PlannerCatalog = {
@@ -111,6 +128,7 @@ export type PlannerCatalog = {
     fatPct: number
   }
   pantry: { ingredientId: number; amountLeft: number; expiryDate?: string }[]
+  ready: PlannerReadyBatch[]
   ingredients: Map<
     number,
     {
@@ -121,7 +139,5 @@ export type PlannerCatalog = {
       unit: string
     }
   >
-  /** Optional ordered shortlist; empty = use full catalog. */
-  shortlistIds?: number[]
   seed?: number
 }

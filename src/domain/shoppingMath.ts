@@ -4,7 +4,7 @@
 
 /** Round a buy quantity up to whole packs when packSize is set. */
 export function roundUpToPack(need: number, packSize?: number): number {
-  if (!(packSize != null && packSize > 0)) return Math.max(0, Math.round(need * 10) / 10)
+  if (!(packSize != null && packSize > 0)) return Math.max(0, Math.round(need * 100) / 100)
   if (need <= 0) return 0
   return Math.ceil(need / packSize) * packSize
 }

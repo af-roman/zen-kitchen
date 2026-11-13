@@ -1,4 +1,5 @@
 import type { Ingredient, MeasureUnit } from './types'
+import { formatAmount, roundAmount } from './amountInput'
 
 /** Metric cooking: 1 tsp = 5 ml, 1 tbsp = 15 ml */
 export const ML_PER_TSP = 5
@@ -13,6 +14,16 @@ export function measureUnitOf(
 
 export function isSpoonUnit(unit: MeasureUnit): unit is 'tsp' | 'tbsp' {
   return unit === 'tsp' || unit === 'tbsp'
+}
+
+/** Spoons and pieces are measured in fractions. Grams and millilitres stay coarse. */
+export function usesFineAmount(unit: string | undefined): boolean {
+  return unit === 'tsp' || unit === 'tbsp' || unit === 'pcs'
+}
+
+export function amountEntry(unit: string | undefined): { step: number; fractions: boolean } {
+  if (usesFineAmount(unit)) return { step: 0.25, fractions: true }
+  return { step: 0.1, fractions: false }
 }
 
 export function mlPerSpoon(unit: 'tsp' | 'tbsp'): number {
@@ -38,7 +49,12 @@ export function canUseMeasureUnit(
 }
 
 function round1(n: number): number {
-  return Math.round(n * 10) / 10
+  return roundAmount(n, 1)
+}
+
+/** Keep quarter-spoons and quarter-pieces (0.25) instead of collapsing them to one decimal. */
+function roundStock(n: number, measureUnit: MeasureUnit): number {
+  return roundAmount(n, usesFineAmount(measureUnit) ? 2 : 1)
 }
 
 /**
@@ -54,17 +70,17 @@ export function toStockAmount(
       `${ingredient.name}: cannot use ${measureUnit} with stock unit ${ingredient.unit}`,
     )
   }
-  if (measureUnit === ingredient.unit) return round1(measureAmount)
+  if (measureUnit === ingredient.unit) return roundStock(measureAmount, measureUnit)
 
   if (isSpoonUnit(measureUnit)) {
     const ml = measureAmount * mlPerSpoon(measureUnit)
-    if (ingredient.unit === 'ml') return round1(ml)
+    if (ingredient.unit === 'ml') return roundStock(ml, measureUnit)
     // unit === 'g'
     const density = ingredient.gramsPerMl
     if (density == null || density <= 0) {
       throw new Error(`${ingredient.name}: set grams per ml to measure by spoons`)
     }
-    return round1(ml * density)
+    return roundStock(ml * density, measureUnit)
   }
 
   throw new Error(`${ingredient.name}: unsupported conversion ${measureUnit} → ${ingredient.unit}`)
@@ -79,19 +95,19 @@ export function fromStockAmount(
   ingredient: Pick<Ingredient, 'unit' | 'gramsPerMl' | 'name'>,
 ): number {
   if (!canUseMeasureUnit(ingredient, measureUnit)) {
-    return round1(stockAmount)
+    return roundStock(stockAmount, measureUnit)
   }
-  if (measureUnit === ingredient.unit) return round1(stockAmount)
+  if (measureUnit === ingredient.unit) return roundStock(stockAmount, measureUnit)
 
   if (isSpoonUnit(measureUnit)) {
     const factor = mlPerSpoon(measureUnit)
-    if (ingredient.unit === 'ml') return round1(stockAmount / factor)
+    if (ingredient.unit === 'ml') return roundStock(stockAmount / factor, measureUnit)
     const density = ingredient.gramsPerMl
-    if (density == null || density <= 0) return round1(stockAmount)
-    return round1(stockAmount / (factor * density))
+    if (density == null || density <= 0) return roundStock(stockAmount, ingredient.unit)
+    return roundStock(stockAmount / (factor * density), measureUnit)
   }
 
-  return round1(stockAmount)
+  return roundStock(stockAmount, measureUnit)
 }
 
 /** Human-readable measure + optional stock equivalent (not shown for spoons). */
@@ -102,7 +118,7 @@ export function formatRecipeAmount(
 ): { primary: string; stockHint?: string } {
   const unit = canUseMeasureUnit(ingredient, measureUnit) ? measureUnit : ingredient.unit
   const shown = fromStockAmount(stockAmount, unit, ingredient)
-  const primary = `${shown} ${unit}`
+  const primary = `${formatAmount(shown, usesFineAmount(unit), usesFineAmount(unit) ? 2 : 1)} ${unit}`
   if (unit === ingredient.unit || isSpoonUnit(unit)) return { primary }
   return {
     primary,
@@ -114,6 +130,11 @@ export function formatRecipeAmount(
 export function gramsPerMlFromTbsp(gramsPerTbsp: number): number | undefined {
   if (gramsPerTbsp <= 0) return undefined
   return Math.round((gramsPerTbsp / ML_PER_TBSP) * 100) / 100
+}
+
+/** Pantry / shop quantity. Pieces use fractions; grams and millilitres keep two places when needed. */
+export function formatStockAmount(amount: number, unit: string | undefined): string {
+  return formatAmount(amount, unit === 'pcs', 2)
 }
 
 export function gramsPerTbspFromMl(gramsPerMl: number | undefined): number {

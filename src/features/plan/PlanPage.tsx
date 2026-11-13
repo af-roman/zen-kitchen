@@ -10,7 +10,7 @@ import {
 import type { MealSlot, Nutrition, Recipe, Serving } from '@/domain/types'
 import { MEAL_SLOTS } from '@/domain/types'
 import { todayISO } from '@/domain/kitchen'
-import { addNutrition, emptyNutrition } from '@/domain/nutrition'
+import { addNutrition, emptyNutrition, macroGramsFromGoals } from '@/domain/nutrition'
 import {
   daysInMonthGrid,
   daysInWeek,
@@ -168,10 +168,16 @@ export function PlanPage() {
   }
 
   function dayOffGoal(date: string): boolean {
-    const kcal = dayNutrition(date).energyKcal
-    const goal = goals?.dailyKcal ?? 0
-    if (kcal <= 0 || goal <= 0) return false
-    return (Math.abs(kcal - goal) / goal) * 100 > tolerancePct
+    const nut = dayNutrition(date)
+    if (!goals || nut.energyKcal <= 0 || goals.dailyKcal <= 0) return false
+    const grams = macroGramsFromGoals(goals)
+    const checks: [number, number][] = [
+      [nut.energyKcal, goals.dailyKcal],
+      [nut.proteinG, grams.proteinG],
+      [nut.carbsG, grams.carbsG],
+      [nut.fatG, grams.fatG],
+    ]
+    return checks.some(([actual, goal]) => goal > 0 && (Math.abs(actual - goal) / goal) * 100 > tolerancePct)
   }
 
   return (
@@ -185,7 +191,7 @@ export function PlanPage() {
               <Button
                 variant="secondary"
                 className="gap-1.5"
-                onClick={() => navigate('/plan-week?autogen=1')}
+                onClick={() => navigate('/plan-week')}
               >
                 <IconSpark className="h-4 w-4" />
                 Replan week
@@ -264,7 +270,7 @@ export function PlanPage() {
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
-              kcal outside ±{tolerancePct}%
+              A target outside ±{tolerancePct}%
             </li>
             <li className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink/20" />
@@ -279,7 +285,7 @@ export function PlanPage() {
           title="Your week is empty"
           body="Generate cook days, meals, and a shopping list from your recipes — then just follow the prompts."
           actions={
-            <Button className="min-w-[12rem] gap-2" onClick={() => navigate('/plan-week?autogen=1')}>
+            <Button className="min-w-[12rem] gap-2" onClick={() => navigate('/plan-week')}>
               <IconSpark className="h-4 w-4" />
               Plan my week
             </Button>

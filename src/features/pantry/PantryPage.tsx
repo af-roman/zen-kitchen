@@ -12,6 +12,7 @@ import {
 import { isAlwaysAvailable, isOutOfStock } from '@/domain/kitchen'
 import { formatExpiryLabel } from '@/domain/servings'
 import { suggestedExpiryFromIngredient } from '@/domain/pantryOrder'
+import { amountEntry, formatStockAmount } from '@/domain/measures'
 import { ImageUploadField } from '@/shared/ImageUploadField'
 import { appConfirm } from '@/shared/dialog'
 import { assetUrl } from '@/shared/assetUrl'
@@ -163,7 +164,7 @@ export function PantryPage() {
                     <div className="text-sm text-ink-muted">{item.brand || 'No brand'}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <Badge tone={always ? 'ok' : out ? 'warn' : 'ok'}>
-                        {always ? 'Always available' : `${item.amountLeft} ${ing.unit} left`}
+                        {always ? 'Always available' : `${formatStockAmount(item.amountLeft, ing.unit)} ${ing.unit} left`}
                       </Badge>
                       {item.expiryDate ? (
                         <Badge tone={formatExpiryLabel(item.expiryDate).includes('expired') ? 'warn' : 'neutral'}>
@@ -314,7 +315,13 @@ function PantryItemSheet({
           <input className={inputClass} value={brand} onChange={(e) => setBrand(e.target.value)} />
         </Field>
         <Field label={`Amount left (${ing?.unit ?? 'unit'})`}>
-          <NumberField value={amountLeft} min={0} step={1} onChange={setAmountLeft} />
+          <NumberField
+            value={amountLeft}
+            min={0}
+            step={amountEntry(ing?.unit).fractions ? 0.25 : 1}
+            fractions={amountEntry(ing?.unit).fractions}
+            onChange={setAmountLeft}
+          />
         </Field>
         <Field label="Expiry date">
           <DateField

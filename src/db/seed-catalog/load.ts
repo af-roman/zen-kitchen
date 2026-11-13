@@ -102,6 +102,7 @@ export async function loadSeedCatalog(options?: {
     })
 
     const { ingredientLines: _lines, ...rest } = raw
+    delete (rest as { allowedPatterns?: unknown }).allowedPatterns
     await db.recipes.add({
       ...rest,
       ingredients,

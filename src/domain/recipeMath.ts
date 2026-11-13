@@ -1,4 +1,5 @@
 import type { CookingSession, Ingredient, Nutrition, Recipe, RecipeStep } from '@/domain/types'
+import { eatenFactor } from '@/domain/eatenShare'
 import { isAlwaysAvailable } from '@/domain/kitchen'
 import { emptyNutrition, nutritionForAmount, addNutrition, scaleNutrition } from '@/domain/nutrition'
 import { dishStage, stageIngredients } from '@/domain/stages'
@@ -13,7 +14,12 @@ export function recipeNutrition(
     if (!ing) continue
     total = addNutrition(
       total,
-      nutritionForAmount(ing.nutritionPer100, line.amount, ing.unit, ing.avgPieceGrams),
+      nutritionForAmount(
+        ing.nutritionPer100,
+        line.amount * eatenFactor(line.eatenShare),
+        ing.unit,
+        ing.avgPieceGrams,
+      ),
     )
   }
   return scaleNutrition(total, 1 / Math.max(1, recipe.portions))
